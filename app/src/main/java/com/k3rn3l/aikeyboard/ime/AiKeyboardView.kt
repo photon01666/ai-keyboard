@@ -46,6 +46,7 @@ class AiKeyboardView(context: Context) : FrameLayout(context) {
     private var errorMode = false
     private var inlineGeneration = 0
     private var pasteChip: TextView? = null
+    private var hasInlineSuggestions = false
     private var swipeGeneration = 0
 
     private val flow = FlowClient { action, text -> handleEffect(action, text) }
@@ -181,15 +182,16 @@ class AiKeyboardView(context: Context) : FrameLayout(context) {
         if (suggestions.isNullOrEmpty()) {
             // Don't destroy an already-showing chip (e.g. from the password
             // field) just because a sibling field (username) has no matches.
-            if (autofillRow.childCount == 0) {
+            if (autofillRow.childCount == 0 || !hasInlineSuggestions) {
                 inlineGeneration++
+                hasInlineSuggestions = false
                 setAutofillStripVisible(false)
             }
             return false
         }
 
-        // Skip re-processing if suggestions are already showing.
-        if (autofillRow.childCount > 0) return true
+        // Skip re-processing if inline suggestions are already showing.
+        if (hasInlineSuggestions) return true
 
         val generation = ++inlineGeneration
 
@@ -204,13 +206,14 @@ class AiKeyboardView(context: Context) : FrameLayout(context) {
                     // so WRAP_CONTENT would measure the chip to 0 width.
                     view.layoutParams = LinearLayout.LayoutParams(width, height)
                         .apply { marginEnd = dp(6f).toInt() }
-                    // Insert before the paste chip so paste stays on the right.
-                    val insertIndex = if (pasteChip != null && pasteChip!!.parent == autofillRow) {
-                        autofillRow.indexOfChild(pasteChip)
-                    } else {
-                        -1
+                    autofillRow.addView(view)
+                    hasInlineSuggestions = true
+                    // Reposition paste chip to the middle.
+                    pasteChip?.let { chip ->
+                        autofillRow.removeView(chip)
+                        val mid = autofillRow.childCount / 2
+                        autofillRow.addView(chip, mid)
                     }
-                    autofillRow.addView(view, if (insertIndex >= 0) insertIndex else -1)
                     // Now that a view is added, the strip can actually show.
                     setAutofillStripVisible(true)
                     view.post {
@@ -229,6 +232,7 @@ class AiKeyboardView(context: Context) : FrameLayout(context) {
     fun clearInlineSuggestions() {
         inlineGeneration++
         autofillRow.removeAllViews()
+        hasInlineSuggestions = false
         pasteChip = null
         // Re-add paste chip if clipboard has text.
         post { updatePasteChip() }
@@ -257,7 +261,8 @@ class AiKeyboardView(context: Context) : FrameLayout(context) {
                 setOnClickListener { service.pasteClipboard() }
             }
             pasteChip = chip
-            autofillRow.addView(chip)
+            val mid = autofillRow.childCount / 2
+            autofillRow.addView(chip, mid)
         } else if (!hasText && pasteChip != null) {
             autofillRow.removeView(pasteChip)
             pasteChip = null
