@@ -29,7 +29,6 @@ class GboardView(context: Context) : View(context) {
         fun onBackspace()
         fun onEnter()
         fun onAi()
-        fun onFix()
         fun onSettings()
         fun onSwipe(points: List<PointF>, keys: List<KeyCenter>, capitalize: Boolean)
     }
@@ -50,7 +49,6 @@ class GboardView(context: Context) : View(context) {
     private sealed class Hit {
         data class KeyHit(val index: Int, val key: Key) : Hit()
         data object Ai : Hit()
-        data object Fix : Hit()
         data object Settings : Hit()
     }
 
@@ -144,7 +142,6 @@ class GboardView(context: Context) : View(context) {
     private var swiping = false
 
     private val aiRect = RectF()
-    private val fixRect = RectF()
     private val gearRect = RectF()
     private var pressed: Hit? = null
 
@@ -238,10 +235,9 @@ class GboardView(context: Context) : View(context) {
             y += rowHeight + gap
         }
 
-        // AI lives at the far top-right, with Fix beside it and settings at the far left.
+        // AI lives at the far top-right, settings at the far left.
         gearRect.set(padH, dp(5f), padH + dp(38f), dp(39f))
-        aiRect.set(width - padH - dp(82f), dp(7f), width - padH, dp(37f))
-        fixRect.set(aiRect.left - dp(57f), dp(8f), aiRect.left - dp(7f), dp(36f))
+        aiRect.set(width - padH - dp(120f), dp(7f), width - padH, dp(37f))
 
         gradientPaint.shader = LinearGradient(
             aiRect.left, 0f, aiRect.right, 0f,
@@ -281,7 +277,6 @@ class GboardView(context: Context) : View(context) {
 
     private fun drawToolbar(canvas: Canvas) {
         val pressedAi = pressed == Hit.Ai
-        val pressedFix = pressed == Hit.Fix
         val pressedGear = pressed == Hit.Settings
 
         gradientPaint.alpha = if (pressedAi) 220 else 255
@@ -300,14 +295,8 @@ class GboardView(context: Context) : View(context) {
         val baseline = aiRect.centerY() - (aiTextPaint.descent() + aiTextPaint.ascent()) / 2f
         canvas.drawText("AI", startX + sparkleR * 2f + gap, baseline, aiTextPaint)
 
-        canvas.drawRoundRect(fixRect, dp(14f), dp(14f), if (pressedFix) pressedPaint else fixPaint)
-        canvas.drawRoundRect(fixRect, dp(14f), dp(14f), fixStrokePaint)
-        fixTextPaint.textSize = dp(11.5f)
-        val fixBaseline = fixRect.centerY() - (fixTextPaint.descent() + fixTextPaint.ascent()) / 2f
-        canvas.drawText("Fix", fixRect.centerX(), fixBaseline, fixTextPaint)
-
         hintPaint.textSize = dp(11.5f)
-        val hintCenter = (gearRect.right + fixRect.left) / 2f
+        val hintCenter = (gearRect.right + aiRect.left) / 2f
         val hintBaseline = aiRect.centerY() - (hintPaint.descent() + hintPaint.ascent()) / 2f
         canvas.drawText(hint, hintCenter, hintBaseline, hintPaint)
 
@@ -489,14 +478,12 @@ class GboardView(context: Context) : View(context) {
 
     private fun contains(hit: Hit, x: Float, y: Float): Boolean = when (hit) {
         Hit.Ai -> aiRect.contains(x, y)
-        Hit.Fix -> fixRect.contains(x, y)
         Hit.Settings -> gearRect.contains(x, y)
         is Hit.KeyHit -> keyRects.getOrNull(hit.index)?.contains(x, y) == true
     }
 
     private fun hitTest(x: Float, y: Float): Hit? {
         if (aiRect.contains(x, y)) return Hit.Ai
-        if (fixRect.contains(x, y)) return Hit.Fix
         if (gearRect.contains(x, y)) return Hit.Settings
         var index = 0
         for (row in rows) {
@@ -528,7 +515,6 @@ class GboardView(context: Context) : View(context) {
     private fun activate(hit: Hit) {
         when (hit) {
             Hit.Ai -> listener?.onAi()
-            Hit.Fix -> listener?.onFix()
             Hit.Settings -> listener?.onSettings()
             is Hit.KeyHit -> activateKey(hit.key)
         }

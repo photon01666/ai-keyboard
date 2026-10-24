@@ -105,7 +105,6 @@ class AiKeyboardView(context: Context) : FrameLayout(context) {
             override fun onBackspace() = service.backspace()
             override fun onEnter() = service.enter()
             override fun onAi() = startAi()
-            override fun onFix() = service.fixWholeText()
             override fun onSettings() = service.openSettings()
 
             override fun onSwipe(
