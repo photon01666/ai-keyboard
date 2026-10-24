@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">AI Keyboard</string>
+    <string name="ime_name">AI Keyboard</string>
+    <string name="subtype_name">AI Keyboard — Gemini Live voice</string>
+    <string name="ai_hint">Tap AI to talk</string>
+    <string name="accessibility_label">AI Keyboard screen context</string>
+    <string name="accessibility_description">Lets the AI Keyboard read visible text so the Fix action can correct mis-transcribed names, punctuation and spelling. Password fields and hidden content are skipped. Screen text is only read when you press Fix or auto-fix runs; it is never saved.</string>
+</resources>

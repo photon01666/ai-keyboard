@@ -1,0 +1,29 @@
+# Gradle / Android
+.gradle/
+build/
+app/build/
+local.properties
+captures/
+*.apk
+*.aab
+*.ap_
+*.dex
+*.class
+
+# IDE
+.idea/
+*.iml
+.vscode/
+
+# Rust
+rust/target/
+
+# Generated JNI libraries (cargoBuild recreates these)
+app/src/main/jniLibs/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
