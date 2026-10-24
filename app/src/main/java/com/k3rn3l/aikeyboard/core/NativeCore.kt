@@ -18,6 +18,8 @@ object NativeCore {
     external fun nativeDestroy(handle: Long)
     external fun nativeCorrect(configJson: String, text: String, context: String): String?
 
+    external fun nativeSwipeDecode(pathJson: String, keysJson: String): String?
+
     external fun nativeFlowCreate(): Long
     external fun nativeFlowEvent(handle: Long, eventJson: String)
     external fun nativeFlowPoll(handle: Long): String?

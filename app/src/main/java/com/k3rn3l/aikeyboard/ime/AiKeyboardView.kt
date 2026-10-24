@@ -1,16 +1,24 @@
 package com.k3rn3l.aikeyboard.ime
 
 import android.content.Context
+import android.graphics.PointF
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
+import android.util.Size
 import android.util.TypedValue
+import android.view.Gravity
 import android.view.View
+import android.view.inputmethod.InlineSuggestionsResponse
 import android.widget.FrameLayout
+import android.widget.HorizontalScrollView
+import android.widget.LinearLayout
 import android.widget.Toast
 import com.k3rn3l.aikeyboard.Prefs
 import com.k3rn3l.aikeyboard.core.FlowClient
 import com.k3rn3l.aikeyboard.voice.LiveClient
+import com.k3rn3l.aikeyboard.voice.SwipeClient
 
 /**
  * Kotlin is the executor and renderer here. The listen -> polish -> done rules
@@ -24,13 +32,18 @@ class AiKeyboardView(context: Context) : FrameLayout(context) {
 
     private val gboard = GboardView(context)
     private val panel = AiPanelView(context)
+    private val autofillStrip = HorizontalScrollView(context)
+    private val autofillRow = LinearLayout(context)
     private val handler = Handler(Looper.getMainLooper())
+    private var stripHeight = 0
+    private var keyboardHeight = 0
 
     private var client: LiveClient? = null
     private var aiVisible = false
     private var seconds = 0
     private var polishingMirror = false
     private var errorMode = false
+    private var swipeGeneration = 0
 
     private val flow = FlowClient { action, text -> handleEffect(action, text) }
 
@@ -47,8 +60,23 @@ class AiKeyboardView(context: Context) : FrameLayout(context) {
     }
 
     init {
+        autofillStrip.isHorizontalScrollBarEnabled = false
+        autofillStrip.setBackgroundColor(0xFF0B0C11.toInt())
+        autofillStrip.visibility = View.GONE
+        autofillRow.orientation = LinearLayout.HORIZONTAL
+        autofillRow.gravity = Gravity.CENTER_VERTICAL
+        autofillRow.setPadding(dp(8f).toInt(), dp(4f).toInt(), dp(8f).toInt(), dp(4f).toInt())
+        autofillStrip.addView(
+            autofillRow,
+            FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                FrameLayout.LayoutParams.MATCH_PARENT,
+            ),
+        )
+
         addView(gboard, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
         addView(panel, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
+        addView(autofillStrip, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
         panel.visibility = View.GONE
 
         gboard.listener = object : GboardView.Listener {
@@ -58,6 +86,27 @@ class AiKeyboardView(context: Context) : FrameLayout(context) {
             override fun onAi() = startAi()
             override fun onFix() = service.fixWholeText()
             override fun onSettings() = service.openSettings()
+
+            override fun onSwipe(
+                points: List<PointF>,
+                keys: List<GboardView.KeyCenter>,
+                capitalize: Boolean,
+            ) {
+                if (!prefs.swipeTyping || aiVisible) return
+                val generation = ++swipeGeneration
+                val swipeKeys = keys.map { SwipeClient.SwipeKey(it.letter, it.x, it.y) }
+                SwipeClient.decode(points, swipeKeys) { word, score ->
+                    if (generation != swipeGeneration || word.isNullOrBlank()) return@decode
+                    val text = if (capitalize) {
+                        word.replaceFirstChar { it.uppercase() }
+                    } else {
+                        word
+                    }
+                    gboard.consumeSwipeShift()
+                    service.commitSwipeWord(text)
+                    Log.d(TAG, "swipe committed '$text' (score $score)")
+                }
+            }
         }
 
         panel.onStop = {
@@ -73,25 +122,78 @@ class AiKeyboardView(context: Context) : FrameLayout(context) {
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         val width = MeasureSpec.getSize(widthMeasureSpec)
-        val desired = TypedValue.applyDimension(
+        val base = TypedValue.applyDimension(
             TypedValue.COMPLEX_UNIT_DIP,
             296f,
             resources.displayMetrics,
         ).toInt()
+        val wantedStrip = if (autofillStrip.visibility == View.VISIBLE) {
+            TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 56f, resources.displayMetrics).toInt()
+        } else {
+            0
+        }
+        val desired = base + wantedStrip
         val height = resolveSize(desired, heightMeasureSpec)
+        stripHeight = wantedStrip.coerceAtMost(height)
+        keyboardHeight = (height - stripHeight).coerceAtLeast(base - wantedStrip)
         setMeasuredDimension(width, height)
 
         val exactWidth = MeasureSpec.makeMeasureSpec(width, MeasureSpec.EXACTLY)
-        val exactHeight = MeasureSpec.makeMeasureSpec(height, MeasureSpec.EXACTLY)
-        for (index in 0 until childCount) {
-            getChildAt(index).measure(exactWidth, exactHeight)
-        }
+        val stripSpec = MeasureSpec.makeMeasureSpec(stripHeight, MeasureSpec.EXACTLY)
+        val keyboardSpec = MeasureSpec.makeMeasureSpec(keyboardHeight, MeasureSpec.EXACTLY)
+
+        autofillStrip.measure(exactWidth, stripSpec)
+        gboard.measure(exactWidth, keyboardSpec)
+        panel.measure(exactWidth, keyboardSpec)
     }
 
     override fun onLayout(changed: Boolean, left: Int, top: Int, right: Int, bottom: Int) {
-        for (index in 0 until childCount) {
-            getChildAt(index).layout(0, 0, right - left, bottom - top)
+        val width = right - left
+        autofillStrip.layout(0, 0, width, stripHeight)
+        gboard.layout(0, stripHeight, width, stripHeight + keyboardHeight)
+        panel.layout(0, stripHeight, width, stripHeight + keyboardHeight)
+    }
+
+    fun showInlineSuggestions(response: InlineSuggestionsResponse): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return false
+        autofillRow.removeAllViews()
+
+        val suggestions = response.inlineSuggestions
+        if (suggestions.isNullOrEmpty()) {
+            setAutofillStripVisible(false)
+            return false
         }
+
+        val size = Size(dp(360f).toInt(), dp(56f).toInt())
+        for (suggestion in suggestions.take(3)) {
+            try {
+                suggestion.inflate(context, size, context.mainExecutor) { view ->
+                    view.layoutParams = LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.WRAP_CONTENT,
+                        LinearLayout.LayoutParams.MATCH_PARENT,
+                    ).apply { marginEnd = dp(6f).toInt() }
+                    autofillRow.addView(view)
+                    setAutofillStripVisible(true)
+                    Log.d(TAG, "inline suggestion added: ${autofillRow.childCount}")
+                }
+            } catch (error: Throwable) {
+                Log.w(TAG, "could not inflate inline suggestion: ${error.message}")
+            }
+        }
+        return true
+    }
+
+    fun clearInlineSuggestions() {
+        autofillRow.removeAllViews()
+        setAutofillStripVisible(false)
+    }
+
+    private fun setAutofillStripVisible(visible: Boolean) {
+        val target = visible && autofillRow.childCount > 0 && !aiVisible
+        val newVisibility = if (target) View.VISIBLE else View.GONE
+        if (autofillStrip.visibility == newVisibility) return
+        autofillStrip.visibility = newVisibility
+        requestLayout()
     }
 
     override fun onDetachedFromWindow() {
@@ -129,6 +231,7 @@ class AiKeyboardView(context: Context) : FrameLayout(context) {
     }
 
     fun onKeyboardHidden() {
+        swipeGeneration++
         stopTicker()
         stopSessionTimer()
         flow.hidden()
@@ -247,6 +350,7 @@ class AiKeyboardView(context: Context) : FrameLayout(context) {
 
     private fun showPanel() {
         aiVisible = true
+        setAutofillStripVisible(false)
         panel.animate().cancel()
         panel.visibility = View.VISIBLE
         panel.alpha = 0f
@@ -262,6 +366,7 @@ class AiKeyboardView(context: Context) : FrameLayout(context) {
             panel.visibility = View.GONE
             panel.alpha = 1f
             panel.translationY = 0f
+            setAutofillStripVisible(true)
             return
         }
         panel.animate()
@@ -272,6 +377,7 @@ class AiKeyboardView(context: Context) : FrameLayout(context) {
                 panel.visibility = View.GONE
                 panel.alpha = 1f
                 panel.translationY = 0f
+                setAutofillStripVisible(true)
             }
             .start()
     }
@@ -335,6 +441,6 @@ class AiKeyboardView(context: Context) : FrameLayout(context) {
         TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, value, resources.displayMetrics)
 
     companion object {
-        private const val TAG = "AiKeyboardFlow"
+        private const val TAG = "AiKeyboardAutofill"
     }
 }

@@ -49,6 +49,10 @@ android {
     }
 }
 
+dependencies {
+    implementation("androidx.autofill:autofill:1.1.0")
+}
+
 val sdkDir: File = run {
     val fromEnv = System.getenv("ANDROID_HOME") ?: System.getenv("ANDROID_SDK_ROOT")
     if (!fromEnv.isNullOrBlank()) File(fromEnv) else File(System.getProperty("user.home"), "Android/Sdk")

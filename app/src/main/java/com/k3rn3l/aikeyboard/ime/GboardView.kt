@@ -5,14 +5,17 @@ import android.graphics.Canvas
 import android.graphics.LinearGradient
 import android.graphics.Paint
 import android.graphics.Path
+import android.graphics.PointF
 import android.graphics.RectF
 import android.graphics.Shader
 import android.graphics.Typeface
 import android.os.Handler
+import android.os.SystemClock
 import android.os.Looper
 import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
 import android.view.View
+import kotlin.math.hypot
 
 /**
  * Gboard-style QWERTY surface. Drawn on a single canvas so the whole keyboard
@@ -28,7 +31,10 @@ class GboardView(context: Context) : View(context) {
         fun onAi()
         fun onFix()
         fun onSettings()
+        fun onSwipe(points: List<PointF>, keys: List<KeyCenter>, capitalize: Boolean)
     }
+
+    data class KeyCenter(val letter: Char, val x: Float, val y: Float)
 
     var listener: Listener? = null
 
@@ -57,6 +63,20 @@ class GboardView(context: Context) : View(context) {
     private val pressedPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF3A3D4A.toInt() }
     private val pressedAccentPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF8E74FF.toInt() }
     private val enterPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF6C5CE7.toInt() }
+    private val swipePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = dp(4f)
+        color = 0xFF8E7BFF.toInt()
+        strokeCap = Paint.Cap.ROUND
+        strokeJoin = Paint.Join.ROUND
+    }
+    private val swipeGlow = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = dp(11f)
+        color = 0x338E7BFF
+        strokeCap = Paint.Cap.ROUND
+        strokeJoin = Paint.Join.ROUND
+    }
     private val fixPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF14161F.toInt() }
     private val fixStrokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = 0xFF3B3355.toInt()
@@ -101,8 +121,14 @@ class GboardView(context: Context) : View(context) {
     private val keyRects = mutableListOf<RectF>()
     private var rows: List<List<Key>> = letters()
     private var shift = false
+    private var capsLock = false
+    private var lastShiftTap = 0L
     private var symbols = false
     private var hint = "Tap AI to talk"
+
+    private val swipePoints = mutableListOf<PointF>()
+    private var swipeArmed = false
+    private var swiping = false
 
     private val aiRect = RectF()
     private val fixRect = RectF()
@@ -136,8 +162,16 @@ class GboardView(context: Context) : View(context) {
     }
 
     fun setShift(on: Boolean) {
+        if (capsLock) return
         if (shift == on) return
         shift = on
+        invalidate()
+    }
+
+    /** Call after a swipe word is committed. Caps lock survives; one-shot shift does not. */
+    fun consumeSwipeShift() {
+        if (!capsLock) shift = false
+        lastShiftTap = 0
         invalidate()
     }
 
@@ -213,6 +247,17 @@ class GboardView(context: Context) : View(context) {
                 index++
             }
         }
+
+        if (swipePoints.size > 1) {
+            val path = Path().apply {
+                moveTo(swipePoints[0].x, swipePoints[0].y)
+                for (point in 1 until swipePoints.size) {
+                    lineTo(swipePoints[point].x, swipePoints[point].y)
+                }
+            }
+            canvas.drawPath(path, swipeGlow)
+            canvas.drawPath(path, swipePaint)
+        }
     }
 
     private fun drawToolbar(canvas: Canvas) {
@@ -284,7 +329,7 @@ class GboardView(context: Context) : View(context) {
         }
         canvas.drawRoundRect(rect, radius, radius, fill)
 
-        if (key.kind == Kind.SHIFT && shift) {
+        if (key.kind == Kind.SHIFT && (shift || capsLock)) {
             val highlight = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x337C5CFF }
             canvas.drawRoundRect(rect, radius, radius, highlight)
             canvas.drawRoundRect(rect, radius, radius, iconPaint.apply {
@@ -292,6 +337,18 @@ class GboardView(context: Context) : View(context) {
                 style = Paint.Style.STROKE
             })
             iconPaint.color = 0xFFB7BCC8.toInt()
+        }
+        if (key.kind == Kind.SHIFT && capsLock) {
+            val marker = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFB39DFF.toInt() }
+            canvas.drawRoundRect(
+                rect.left + dp(10f),
+                rect.bottom - dp(7f),
+                rect.right - dp(10f),
+                rect.bottom - dp(4.5f),
+                dp(1.5f),
+                dp(1.5f),
+                marker,
+            )
         }
 
         val baseline = rect.centerY() - (labelPaint.descent() + labelPaint.ascent()) / 2f
@@ -310,7 +367,7 @@ class GboardView(context: Context) : View(context) {
                 val letter = key.label.length == 1 && key.label[0].isLetter()
                 labelPaint.textSize = if (letter) dp(18.5f) else dp(15f)
                 labelPaint.color = 0xFFF2F3F7.toInt()
-                val shown = if (shift && letter) key.label.uppercase() else key.label
+                val shown = if ((shift || capsLock) && letter) key.label.uppercase() else key.label
                 canvas.drawText(shown, rect.centerX(), baseline, labelPaint)
             }
         }
@@ -321,6 +378,15 @@ class GboardView(context: Context) : View(context) {
             MotionEvent.ACTION_DOWN -> {
                 val hit = hitTest(event.x, event.y) ?: return false
                 pressed = hit
+                swipePoints.clear()
+                swiping = false
+                swipeArmed = hit is Hit.KeyHit &&
+                    hit.key.kind == Kind.CHAR &&
+                    hit.key.value.length == 1 &&
+                    hit.key.value[0].isLetter()
+                if (swipeArmed) {
+                    swipePoints.add(PointF(event.x, event.y))
+                }
                 invalidate()
                 performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
                 if (hit is Hit.KeyHit && hit.key.kind == Kind.DELETE) {
@@ -330,6 +396,27 @@ class GboardView(context: Context) : View(context) {
             }
 
             MotionEvent.ACTION_MOVE -> {
+                if (swipeArmed) {
+                    val last = swipePoints.lastOrNull()
+                    if (last == null || hypot(event.x - last.x, event.y - last.y) >= dp(3f)) {
+                        swipePoints.add(PointF(event.x, event.y))
+                    }
+                    val start = swipePoints.firstOrNull()
+                    if (!swiping && start != null && swipePoints.size >= 3 &&
+                        hypot(event.x - start.x, event.y - start.y) > dp(22f)
+                    ) {
+                        swiping = true
+                        pressed = null
+                        repeatHandler.removeCallbacks(repeatBackspace)
+                        performHapticFeedback(HapticFeedbackConstants.GESTURE_START)
+                        invalidate()
+                    }
+                    if (swiping) {
+                        invalidate()
+                        return true
+                    }
+                }
+
                 val hit = pressed ?: return true
                 if (!contains(hit, event.x, event.y)) {
                     pressed = null
@@ -340,8 +427,26 @@ class GboardView(context: Context) : View(context) {
             }
 
             MotionEvent.ACTION_UP -> {
+                if (swiping) {
+                    val points = swipePoints.map { PointF(it.x, it.y) }
+                    val keys = letterCenters()
+                    val capitalize = shift || capsLock
+                    swiping = false
+                    swipeArmed = false
+                    swipePoints.clear()
+                    pressed = null
+                    repeatHandler.removeCallbacks(repeatBackspace)
+                    invalidate()
+                    if (points.size >= 2 && keys.isNotEmpty()) {
+                        listener?.onSwipe(points, keys, capitalize)
+                    }
+                    return true
+                }
+
                 val hit = pressed
                 pressed = null
+                swipeArmed = false
+                swipePoints.clear()
                 repeatHandler.removeCallbacks(repeatBackspace)
                 invalidate()
                 if (hit != null && contains(hit, event.x, event.y)) {
@@ -352,6 +457,9 @@ class GboardView(context: Context) : View(context) {
 
             MotionEvent.ACTION_CANCEL -> {
                 pressed = null
+                swipeArmed = false
+                swiping = false
+                swipePoints.clear()
                 repeatHandler.removeCallbacks(repeatBackspace)
                 invalidate()
                 return true
@@ -383,6 +491,21 @@ class GboardView(context: Context) : View(context) {
         return null
     }
 
+    private fun letterCenters(): List<KeyCenter> {
+        val out = mutableListOf<KeyCenter>()
+        var index = 0
+        for (row in rows) {
+            for (key in row) {
+                val rect = keyRects.getOrNull(index) ?: break
+                if (key.kind == Kind.CHAR && key.value.length == 1 && key.value[0].isLetter()) {
+                    out.add(KeyCenter(key.value[0], rect.centerX(), rect.centerY()))
+                }
+                index++
+            }
+        }
+        return out
+    }
+
     private fun activate(hit: Hit) {
         when (hit) {
             Hit.Ai -> listener?.onAi()
@@ -395,7 +518,24 @@ class GboardView(context: Context) : View(context) {
     private fun activateKey(key: Key) {
         when (key.kind) {
             Kind.SHIFT -> {
-                shift = !shift
+                val now = SystemClock.uptimeMillis()
+                when {
+                    capsLock -> {
+                        capsLock = false
+                        shift = false
+                        lastShiftTap = 0
+                    }
+                    now - lastShiftTap < 320 -> {
+                        capsLock = true
+                        shift = true
+                        lastShiftTap = 0
+                        performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+                    }
+                    else -> {
+                        shift = !shift
+                        lastShiftTap = now
+                    }
+                }
                 invalidate()
             }
             Kind.DELETE -> listener?.onBackspace()
@@ -407,7 +547,8 @@ class GboardView(context: Context) : View(context) {
             }
             Kind.ENTER -> {
                 listener?.onEnter()
-                shift = true
+                if (!capsLock) shift = true
+                lastShiftTap = 0
                 invalidate()
             }
             Kind.SPACE -> {
@@ -415,13 +556,14 @@ class GboardView(context: Context) : View(context) {
                 invalidate()
             }
             Kind.CHAR -> {
-                val text = if (shift) key.value.uppercase() else key.value
+                val text = if (shift || capsLock) key.value.uppercase() else key.value
                 listener?.onText(text)
-                if (shift) {
+                lastShiftTap = 0
+                if (shift && !capsLock) {
                     shift = false
                     invalidate()
                 }
-                if (key.value == "." || key.value == "!" || key.value == "?") {
+                if (!capsLock && (key.value == "." || key.value == "!" || key.value == "?")) {
                     shift = true
                 }
             }

@@ -48,6 +48,10 @@ class Prefs(context: Context) {
         get() = prefs.getBoolean(KEY_AUTO_FIX, true)
         set(value) = prefs.edit().putBoolean(KEY_AUTO_FIX, value).apply()
 
+    var swipeTyping: Boolean
+        get() = prefs.getBoolean(KEY_SWIPE_TYPING, true)
+        set(value) = prefs.edit().putBoolean(KEY_SWIPE_TYPING, value).apply()
+
     fun isConfigured(): Boolean = apiKey.isNotBlank()
 
     fun languageList(): List<String> =
@@ -83,6 +87,7 @@ class Prefs(context: Context) {
         private const val KEY_SILENCE_MS = "silence_ms"
         private const val KEY_FIX_MODEL = "fix_model"
         private const val KEY_AUTO_FIX = "auto_fix"
+        private const val KEY_SWIPE_TYPING = "swipe_typing"
 
         const val DEFAULT_MODEL = "gemini-3.5-transcribe-live"
         const val DEFAULT_FIX_MODEL = "gemini-3.6-flash"

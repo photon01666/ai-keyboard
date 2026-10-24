@@ -1,16 +1,30 @@
 package com.k3rn3l.aikeyboard.ime
 
 import android.Manifest
+import android.annotation.TargetApi
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.os.Build
+import android.os.Bundle
 import android.text.TextUtils
 import android.util.Log
+import android.util.Size
 import android.view.KeyEvent
 import android.view.View
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.ExtractedTextRequest
-import android.inputmethodservice.InputMethodService
+import android.view.inputmethod.InlineSuggestionsRequest
+import android.view.inputmethod.InlineSuggestionsResponse
 import android.widget.Toast
+import android.widget.inline.InlinePresentationSpec
+import android.inputmethodservice.InputMethodService
+import android.graphics.Typeface
+import android.util.TypedValue
+import androidx.autofill.inline.UiVersions
+import androidx.autofill.inline.common.TextViewStyle
+import androidx.autofill.inline.common.ImageViewStyle
+import androidx.autofill.inline.common.ViewStyle
+import androidx.autofill.inline.v1.InlineSuggestionUi
 import com.k3rn3l.aikeyboard.MainActivity
 import com.k3rn3l.aikeyboard.SettingsActivity
 import com.k3rn3l.aikeyboard.context.ScreenTextService
@@ -30,16 +44,79 @@ class AiKeyboardService : InputMethodService() {
 
     override fun onStartInputView(info: EditorInfo?, restarting: Boolean) {
         super.onStartInputView(info, restarting)
+        root?.clearInlineSuggestions()
         root?.refresh()
         updateShift()
     }
 
+    @TargetApi(Build.VERSION_CODES.R)
+    override fun onCreateInlineSuggestionsRequest(uiExtras: Bundle): InlineSuggestionsRequest? {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return null
+
+        val minSize = Size(dp(160), dp(44))
+        val maxSize = Size(dp(400), dp(56))
+        val spec = InlinePresentationSpec.Builder(minSize, maxSize)
+            .setStyle(inlineStyleBundle())
+            .build()
+        val request = InlineSuggestionsRequest.Builder(listOf(spec))
+            .setMaxSuggestionCount(3)
+            .setExtras(uiExtras)
+            .build()
+        Log.d("AiKeyboardAutofill", "request: max=${request.maxSuggestionCount}")
+        return request
+    }
+
+    /**
+     * The platform requires a style bundle; without it ExtServices cannot
+     * render the provider's chip. This mirrors Gboard's dark suggestion strip.
+     */
+    private fun inlineStyleBundle(): Bundle = inlineStyle ?: run {
+        val chip = ViewStyle.Builder()
+            .setBackgroundColor(0xFF1B1D26.toInt())
+            .setPadding(dp(14), dp(8), dp(14), dp(8))
+            .build()
+        val title = TextViewStyle.Builder()
+            .setTextColor(0xFFF5F6FA.toInt())
+            .setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
+            .setTypeface("sans-serif-medium", Typeface.BOLD)
+            .build()
+        val subtitle = TextViewStyle.Builder()
+            .setTextColor(0xFF9A9FAD.toInt())
+            .setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+            .build()
+        val startIcon = ImageViewStyle.Builder()
+            .setMaxWidth(dp(20))
+            .setMaxHeight(dp(20))
+            .build()
+        val style = InlineSuggestionUi.newStyleBuilder()
+            .setChipStyle(chip)
+            .setTitleStyle(title)
+            .setSubtitleStyle(subtitle)
+            .setStartIconStyle(startIcon)
+            .setSingleIconChipStyle(chip)
+            .setSingleIconChipIconStyle(startIcon)
+            .build()
+        val bundle = UiVersions.newStylesBuilder().addStyle(style).build()
+        inlineStyle = bundle
+        bundle
+    }
+
+    @TargetApi(Build.VERSION_CODES.R)
+    override fun onInlineSuggestionsResponse(response: InlineSuggestionsResponse): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return false
+        val count = response.inlineSuggestions.size
+        Log.d("AiKeyboardAutofill", "response: $count suggestion(s)")
+        return root?.showInlineSuggestions(response) ?: false
+    }
+
     override fun onFinishInputView(finishingInput: Boolean) {
+        root?.clearInlineSuggestions()
         root?.onKeyboardHidden()
         super.onFinishInputView(finishingInput)
     }
 
     override fun onWindowHidden() {
+        root?.clearInlineSuggestions()
         root?.onKeyboardHidden()
         super.onWindowHidden()
     }
@@ -75,6 +152,17 @@ class AiKeyboardService : InputMethodService() {
 
     fun beginSession() {
         sessionText.setLength(0)
+    }
+
+    /** Commits a decoded swipe word with a trailing space. */
+    fun commitSwipeWord(word: String) {
+        val text = word.trim()
+        if (text.isEmpty()) return
+        val connection = currentInputConnection ?: return
+        val before = connection.getTextBeforeCursor(1, 0)?.toString().orEmpty()
+        val prefix = if (before.isNotEmpty() && !before.last().isWhitespace()) " " else ""
+        connection.commitText("$prefix$text ", 1)
+        updateShift()
     }
 
     /** The current editor contents, used to make the next AI run start clean. */
@@ -283,9 +371,14 @@ class AiKeyboardService : InputMethodService() {
         return super.onKeyUp(keyCode, event)
     }
 
+    private var inlineStyle: Bundle? = null
+
     private fun toast(message: String) {
         Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
     }
+
+    private fun dp(value: Int): Int =
+        (value * resources.displayMetrics.density).toInt()
 
     fun backspace() {
         val connection = currentInputConnection ?: return

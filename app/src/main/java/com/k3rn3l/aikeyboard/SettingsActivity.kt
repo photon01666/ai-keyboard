@@ -26,6 +26,7 @@ class SettingsActivity : Activity() {
     private lateinit var smart: Switch
     private lateinit var hybridVad: Switch
     private lateinit var autoFix: Switch
+    private lateinit var swipeTyping: Switch
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -157,6 +158,15 @@ class SettingsActivity : Activity() {
         content.addView(vocabulary)
         content.addView(fieldHelp("Biases recognition toward words it should never misspell. Up to ~100 terms works best."))
 
+        content.addView(Ui.spacer(this, 20))
+        content.addView(sectionLabel("KEYBOARD"))
+        swipeTyping = switchRow(
+            content,
+            "Swipe to type (English)",
+            "Glide across letters. Decoded by the Rust core with a built-in 10k word list.",
+            prefs.swipeTyping,
+        )
+
         content.addView(Ui.spacer(this, 28))
 
         val save = Ui.button(this, "Save settings", primary = true).apply {
@@ -237,6 +247,7 @@ class SettingsActivity : Activity() {
         prefs.vocabulary = vocabulary.text.toString()
         prefs.fixModel = fixModel.text.toString()
         prefs.autoFix = autoFix.isChecked
+        prefs.swipeTyping = swipeTyping.isChecked
 
         val message = if (prefs.apiKey.isBlank()) {
             "Saved — add a Gemini API key to start voice mode"

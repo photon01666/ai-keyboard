@@ -1,6 +1,7 @@
 mod config;
 mod correct;
 mod flow;
+mod swipe;
 mod worker;
 
 use config::Config;
@@ -330,6 +331,34 @@ impl FlowSession {
             out.push_str(&line);
         }
         Some(out)
+    }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_k3rn3l_aikeyboard_core_NativeCore_nativeSwipeDecode<'caller>(
+    mut unowned_env: EnvUnowned<'caller>,
+    _class: JClass<'caller>,
+    path_json: JString<'caller>,
+    keys_json: JString<'caller>,
+) -> JString<'caller> {
+    let outcome = unowned_env.with_env(|env| -> Result<JString<'caller>, jni::errors::Error> {
+        let path_raw = path_json.mutf8_chars(env)?.to_str().to_string();
+        let keys_raw = keys_json.mutf8_chars(env)?.to_str().to_string();
+        let path: Vec<[f32; 2]> = serde_json::from_str(&path_raw).unwrap_or_default();
+        let keys: Vec<swipe::Key> = serde_json::from_str(&keys_raw).unwrap_or_default();
+        let result = swipe::decode(&path, &keys);
+        let payload = match result {
+            Some((word, score)) => serde_json::json!({
+                "word": word,
+                "score": score
+            }),
+            None => serde_json::json!({}),
+        };
+        JString::from_str(env, payload.to_string())
+    });
+    match outcome.into_outcome() {
+        Outcome::Ok(value) => value,
+        _ => JString::default(),
     }
 }
 
