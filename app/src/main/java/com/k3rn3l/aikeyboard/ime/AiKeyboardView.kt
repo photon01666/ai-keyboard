@@ -204,12 +204,13 @@ class AiKeyboardView(context: Context) : FrameLayout(context) {
                     // so WRAP_CONTENT would measure the chip to 0 width.
                     view.layoutParams = LinearLayout.LayoutParams(width, height)
                         .apply { marginEnd = dp(6f).toInt() }
-                    autofillRow.addView(view)
-                    // Keep paste chip on the right.
-                    pasteChip?.let { chip ->
-                        autofillRow.removeView(chip)
-                        autofillRow.addView(chip)
+                    // Insert before the paste chip so paste stays on the right.
+                    val insertIndex = if (pasteChip != null && pasteChip!!.parent == autofillRow) {
+                        autofillRow.indexOfChild(pasteChip)
+                    } else {
+                        -1
                     }
+                    autofillRow.addView(view, if (insertIndex >= 0) insertIndex else -1)
                     // Now that a view is added, the strip can actually show.
                     setAutofillStripVisible(true)
                     view.post {
