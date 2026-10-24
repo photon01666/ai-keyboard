@@ -127,6 +127,7 @@ class GboardView(context: Context) : View(context) {
         symbols = false
         rows = if (numberMode) numberPad() else letters()
         keyRects.clear()
+        if (width > 0 && height > 0) layoutKeys()
         invalidate()
     }
 
@@ -194,6 +195,8 @@ class GboardView(context: Context) : View(context) {
 
     fun refresh() {
         rows = if (numberMode) numberPad() else if (symbols) symbols() else letters()
+        keyRects.clear()
+        if (width > 0 && height > 0) layoutKeys()
         invalidate()
     }
 
@@ -203,6 +206,9 @@ class GboardView(context: Context) : View(context) {
         val width = MeasureSpec.getSize(widthMeasureSpec)
         val desired = dp(272f).toInt()
         setMeasuredDimension(width, resolveSize(desired, heightMeasureSpec))
+        if (width > 0 && height > 0 && keyRects.isEmpty()) {
+            layoutKeys()
+        }
     }
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
@@ -216,7 +222,8 @@ class GboardView(context: Context) : View(context) {
         val gap = dp(5f)
         val toolbar = dp(44f)
         val bottom = dp(4f)
-        val rowHeight = (height - toolbar - bottom - gap * 3f) / 4f
+        val rowCount = rows.size.coerceAtLeast(1)
+        val rowHeight = (height - toolbar - bottom - gap * (rowCount - 1).toFloat()) / rowCount.toFloat()
 
         var y = toolbar
         rows.forEach { row ->
@@ -562,6 +569,7 @@ class GboardView(context: Context) : View(context) {
                 }
                 shift = false
                 keyRects.clear()
+                if (width > 0 && height > 0) layoutKeys()
                 invalidate()
             }
             Kind.ENTER -> {
