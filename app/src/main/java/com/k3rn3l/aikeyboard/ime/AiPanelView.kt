@@ -252,6 +252,17 @@ class AiPanelView(context: Context) : LinearLayout(context) {
         }
     }
 
+    /** Transport status only; never changes Done/Stop state. */
+    fun setTransportStatus(text: String) {
+        if (polishing) return
+        subtitle.text = text
+    }
+
+    fun clearTransportStatus() {
+        if (polishing) return
+        updateSubtitle()
+    }
+
     fun beginSpeech() {
         if (interim.text.isNullOrBlank() ||
             interim.text == "Start speaking…" ||

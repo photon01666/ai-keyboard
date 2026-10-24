@@ -15,6 +15,8 @@ There is no timed auto-stop and no timed polish. Done is the trigger.
 Almost all of the logic is Rust:
 
 - `rust/src/lib.rs` — JNI surface
+- `rust/src/flow.rs` — authoritative listen → polish → done state machine, with
+  unit tests for every transition
 - `rust/src/worker.rs` — rustls WebSocket, Gemini Live protocol, 16 kHz PCM chunking,
   local VAD, reconnects, event queue
 - `rust/src/correct.rs` — the one-shot Gemini repair/polish request
@@ -44,6 +46,12 @@ export JAVA_HOME=/path/to/jdk-21
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 adb shell ime enable com.k3rn3l.aikeyboard/.ime.AiKeyboardService
 adb shell ime set com.k3rn3l.aikeyboard/.ime.AiKeyboardService
+```
+
+Run the flow tests with:
+
+```bash
+cd rust && cargo test
 ```
 
 The Gradle `cargoBuild` task cross-compiles the Rust core into

@@ -9,12 +9,13 @@ import android.view.View
 import android.widget.FrameLayout
 import android.widget.Toast
 import com.k3rn3l.aikeyboard.Prefs
+import com.k3rn3l.aikeyboard.core.FlowClient
 import com.k3rn3l.aikeyboard.voice.LiveClient
 
 /**
- * Root IME view: a normal Gboard-like keyboard plus a full-surface AI mode.
- * The user taps Done after an utterance; that runs the polish and then closes
- * the session. There is no timed auto-polish.
+ * Kotlin is the executor and renderer here. The listen -> polish -> done rules
+ * live in Rust (`rust/src/flow.rs`); this view only forwards Android/session
+ * events and carries out the effects Rust returns.
  */
 class AiKeyboardView(context: Context) : FrameLayout(context) {
 
@@ -27,16 +28,11 @@ class AiKeyboardView(context: Context) : FrameLayout(context) {
 
     private var client: LiveClient? = null
     private var aiVisible = false
-    private var lastState = LiveClient.State.IDLE
     private var seconds = 0
+    private var polishingMirror = false
+    private var errorMode = false
 
-    private var polishing = false
-    private var speechDuringPolish = false
-    private var stopRequested = false
-    private var pendingHide = false
-    private var finishing = false
-    private var pendingStart = false
-    private var finalDuringPolish = false
+    private val flow = FlowClient { action, text -> handleEffect(action, text) }
 
     private val ticker = object : Runnable {
         override fun run() {
@@ -61,14 +57,9 @@ class AiKeyboardView(context: Context) : FrameLayout(context) {
         }
 
         panel.onStop = {
-            if (lastState == LiveClient.State.ERROR) {
-                client = null
-                startAi()
-            } else {
-                stopAi()
-            }
+            if (errorMode) startAi() else flow.stop()
         }
-        panel.onDone = { startPolish() }
+        panel.onDone = { flow.done() }
     }
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
@@ -94,6 +85,14 @@ class AiKeyboardView(context: Context) : FrameLayout(context) {
         }
     }
 
+    override fun onDetachedFromWindow() {
+        client?.cancel()
+        client = null
+        flow.destroy()
+        stopTicker()
+        super.onDetachedFromWindow()
+    }
+
     fun refresh() {
         gboard.refresh()
         if (!aiVisible) gboard.setHint("Tap AI to talk")
@@ -103,21 +102,9 @@ class AiKeyboardView(context: Context) : FrameLayout(context) {
         if (caps) gboard.setShift(true)
     }
 
-    fun isPolishing(): Boolean = polishing
+    fun isPolishing(): Boolean = polishingMirror
 
     fun startAi() {
-        if (client != null) {
-            if (finishing) {
-                // The old session is flushing its final words. Queue the restart
-                // instead of dropping the tap on the floor.
-                pendingStart = true
-                gboard.setHint("Starting…")
-            } else {
-                gboard.setHint(if (polishing) "Polishing text…" else "Finishing transcript…")
-            }
-            return
-        }
-        pendingStart = false
         if (!prefs.isConfigured()) {
             Toast.makeText(context, "Add your Gemini API key first", Toast.LENGTH_SHORT).show()
             service.openSettings()
@@ -128,123 +115,110 @@ class AiKeyboardView(context: Context) : FrameLayout(context) {
             service.openMicPermission()
             return
         }
-
-        polishing = false
-        speechDuringPolish = false
-        stopRequested = false
-        pendingHide = false
-
-        // Every AI run starts with a clean field, so a new message never gets
-        // appended to the previous one.
-        if (!service.clearField()) {
-            Toast.makeText(context, "Could not clear this text field", Toast.LENGTH_SHORT).show()
-        }
-
-        panel.configure(prefs.smart, prefs.languageList().joinToString(", ").ifBlank { "AUTO" })
-        panel.reset()
-        panel.setState(LiveClient.State.CONNECTING)
-        showPanel()
-        service.beginSession()
-
-        lastState = LiveClient.State.CONNECTING
-        seconds = 0
-        panel.setElapsed(0)
-        handler.removeCallbacks(ticker)
-        handler.postDelayed(ticker, 1_000)
-
-        val session = LiveClient(context, listener)
-        client = session
-        session.start()
-    }
-
-    /** Abort without polishing. The Done button is the polish path. */
-    fun stopAi() {
-        if (polishing) {
-            stopRequested = true
-            return
-        }
-        finishSession("Tap AI to talk")
-    }
-
-    private fun startPolish() {
-        val session = client ?: return
-        if (polishing || !aiVisible) return
-        if (session !== client) return
-
-        if (!prefs.autoFix) {
-            finishSession("Tap AI to talk")
-            return
-        }
-
-        polishing = true
-        speechDuringPolish = false
-        finalDuringPolish = false
-        stopRequested = false
-        panel.setPolishing(true)
-        service.fixSessionText { ok -> onPolishFinished(ok) }
-    }
-
-    private fun finishSession(hint: String) {
-        val session = client
-        handler.removeCallbacks(ticker)
-        finishing = session != null
-        session?.stop()
-        hidePanel()
-        gboard.setHint(hint)
+        flow.start(prefs.autoFix)
     }
 
     fun onKeyboardHidden() {
-        if (polishing) {
-            // Never throw away an in-flight correction. The polish callback owns
-            // the final teardown when it finishes.
-            pendingHide = true
-            return
-        }
-        handler.removeCallbacks(ticker)
-        stopRequested = false
-        pendingStart = false
-        finishing = false
-        client?.cancel()
-        client = null
-        if (aiVisible) hidePanel(immediate = true)
+        stopTicker()
+        flow.hidden()
     }
 
-    private fun onPolishFinished(ok: Boolean) {
-        polishing = false
-        panel.setPolishing(false)
-
-        if (pendingHide) {
-            pendingHide = false
-            handler.removeCallbacks(ticker)
-            client?.cancel()
-            client = null
-            hidePanel(immediate = true)
-            return
-        }
-
-        if (speechDuringPolish && !stopRequested && client != null) {
-            // They kept talking while the previous segment was polishing. Keep the
-            // session live and, if that next utterance is already finalised, put
-            // Done back immediately instead of leaving a bare Stop button.
-            panel.setState(LiveClient.State.LISTENING)
-            if (finalDuringPolish) {
-                panel.setDoneAvailable(prefs.autoFix)
+    private fun handleEffect(action: String, text: String?) {
+        when (action) {
+            "clear_field" -> {
+                if (!service.clearField()) {
+                    Toast.makeText(context, "Could not clear this text field", Toast.LENGTH_SHORT).show()
+                }
             }
-            finalDuringPolish = false
-            return
-        }
 
-        if (!ok) {
-            Toast.makeText(context, "Polish failed — stopped listening", Toast.LENGTH_SHORT).show()
-        }
+            "show_panel" -> {
+                errorMode = false
+                polishingMirror = false
+                panel.configure(
+                    prefs.smart,
+                    prefs.languageList().joinToString(", ").ifBlank { "AUTO" },
+                )
+                panel.reset()
+                panel.setState(LiveClient.State.CONNECTING)
+                showPanel()
+                startTicker()
+            }
 
-        if (client == null) {
-            hidePanel(immediate = true)
-            gboard.setHint("Tap AI to talk")
-            return
-        }
+            "start_session" -> {
+                if (client != null) {
+                    Log.e(TAG, "start_session while a client already exists")
+                    return
+                }
+                val session = LiveClient(context, listener)
+                client = session
+                session.start()
+            }
 
-        finishSession(if (ok) "Polished ✓" else "Tap AI to talk")
+            "hide_panel" -> {
+                stopTicker()
+                polishingMirror = false
+                errorMode = false
+                hidePanel()
+            }
+
+            "show_listening" -> {
+                errorMode = false
+                polishingMirror = false
+                panel.setPolishing(false)
+                panel.setState(LiveClient.State.LISTENING)
+            }
+
+            "show_done" -> panel.setDoneAvailable(true)
+
+            "show_stop" -> panel.setDoneAvailable(false)
+
+            "show_polishing" -> {
+                polishingMirror = true
+                panel.setPolishing(true)
+            }
+
+            "polish" -> {
+                service.fixSessionText { ok -> flow.polishFinished(ok) }
+            }
+
+            "stop_session" -> client?.stop()
+
+            "cancel_session" -> {
+                client?.cancel()
+                client = null
+                stopTicker()
+            }
+
+            "hint" -> gboard.setHint(text ?: "Tap AI to talk")
+
+            "toast" -> if (!text.isNullOrBlank()) {
+                Toast.makeText(context, text, Toast.LENGTH_SHORT).show()
+            }
+
+            "show_error" -> {
+                errorMode = true
+                polishingMirror = false
+                panel.setPolishing(false)
+                panel.setState(
+                    LiveClient.State.ERROR,
+                    text ?: "Transcription stopped.",
+                )
+                stopTicker()
+            }
+
+            else -> Log.w(TAG, "unknown flow effect: $action")
+        }
+    }
+
+    private fun startTicker() {
+        handler.removeCallbacks(ticker)
+        seconds = 0
+        panel.setElapsed(0)
+        handler.postDelayed(ticker, 1_000)
+    }
+
+    private fun stopTicker() {
+        handler.removeCallbacks(ticker)
     }
 
     private fun showPanel() {
@@ -280,47 +254,35 @@ class AiKeyboardView(context: Context) : FrameLayout(context) {
 
     private val listener = object : LiveClient.Listener {
         override fun onState(state: LiveClient.State, detail: String?) {
-            lastState = state
             when (state) {
                 LiveClient.State.LISTENING -> {
-                    if (!polishing) panel.setState(state)
+                    flow.ready()
+                    if (!polishingMirror) panel.clearTransportStatus()
+                }
+                LiveClient.State.RECONNECTING -> {
+                    if (!polishingMirror) {
+                        panel.setTransportStatus(detail ?: "Reconnecting…")
+                    }
+                }
+                LiveClient.State.ERROR -> {
+                    flow.error(detail ?: "Transcription stopped.")
                 }
                 LiveClient.State.CONNECTING,
-                LiveClient.State.RECONNECTING,
                 LiveClient.State.STOPPING,
-                LiveClient.State.ERROR,
-                -> {
-                    if (!polishing) panel.setState(state, detail)
-                }
-                LiveClient.State.IDLE -> {
-                    handler.removeCallbacks(ticker)
-                    if (!polishing) gboard.setHint("Tap AI to talk")
-                }
+                LiveClient.State.IDLE,
+                -> Unit
             }
         }
 
         override fun onInterim(text: String) {
-            if (polishing) {
-                speechDuringPolish = true
-            }
-            // Do NOT hide Done on an interim: a late interim can arrive just after
-            // a final and would swallow the button. Speech start hides it instead.
+            flow.interim()
             if (aiVisible) panel.setInterim(text)
         }
 
         override fun onFinal(text: String) {
             service.commitFinal(text)
-            if (!aiVisible) return
-            panel.setFinal(text)
-            if (polishing) {
-                // This is the next utterance completing while the previous one is
-                // still being polished.
-                finalDuringPolish = true
-            } else {
-                // Utterance finished: expose the explicit Done -> polish action.
-                panel.setDoneAvailable(prefs.autoFix)
-            }
-            Log.d("AiKeyboardDone", "final polishing=$polishing chars=${text.length}")
+            if (aiVisible) panel.setFinal(text)
+            flow.finalizeUtterance()
         }
 
         override fun onLevel(level: Float) {
@@ -328,13 +290,8 @@ class AiKeyboardView(context: Context) : FrameLayout(context) {
         }
 
         override fun onSpeech(active: Boolean) {
-            if (!active) return
-            if (polishing) {
-                speechDuringPolish = true
-            } else {
-                panel.setDoneAvailable(false)
-            }
-            if (aiVisible) panel.beginSpeech()
+            if (active && aiVisible) panel.beginSpeech()
+            flow.speech(active)
         }
 
         override fun onNotice(message: String) {
@@ -345,23 +302,15 @@ class AiKeyboardView(context: Context) : FrameLayout(context) {
 
         override fun onClosed() {
             client = null
-            finishing = false
-            handler.removeCallbacks(ticker)
-            if (polishing) return
-
-            if (pendingStart) {
-                pendingStart = false
-                gboard.setHint("Starting…")
-                handler.post { startAi() }
-                return
-            }
-
-            if (lastState == LiveClient.State.ERROR) return
-            if (aiVisible) hidePanel()
-            gboard.setHint("Tap AI to talk")
+            stopTicker()
+            flow.closed()
         }
     }
 
     private fun dp(value: Float): Float =
         TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, value, resources.displayMetrics)
+
+    companion object {
+        private const val TAG = "AiKeyboardFlow"
+    }
 }

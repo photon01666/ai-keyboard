@@ -17,6 +17,11 @@ object NativeCore {
     external fun nativePoll(handle: Long): String?
     external fun nativeDestroy(handle: Long)
     external fun nativeCorrect(configJson: String, text: String, context: String): String?
+
+    external fun nativeFlowCreate(): Long
+    external fun nativeFlowEvent(handle: Long, eventJson: String)
+    external fun nativeFlowPoll(handle: Long): String?
+    external fun nativeFlowDestroy(handle: Long)
     external fun nativeVersion(): String
 
     fun version(): String = runCatching { nativeVersion() }.getOrDefault("unknown")

@@ -1,5 +1,6 @@
 mod config;
 mod correct;
+mod flow;
 mod worker;
 
 use config::Config;
@@ -7,6 +8,7 @@ use jni::errors::ThrowRuntimeExAndDefault;
 use jni::objects::{JClass, JShortArray, JString};
 use jni::sys::jlong;
 use jni::{EnvUnowned, Outcome};
+use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use tokio::sync::mpsc;
@@ -276,6 +278,124 @@ pub extern "system" fn Java_com_k3rn3l_aikeyboard_core_NativeCore_nativeDestroy<
     }
     let session = unsafe { Box::from_raw(handle as *mut NativeSession) };
     session.shutdown();
+}
+
+// ---------------------------------------------------------------------------
+// UI flow controller
+// ---------------------------------------------------------------------------
+
+struct FlowState {
+    flow: flow::Flow,
+    effects: VecDeque<String>,
+}
+
+pub struct FlowSession {
+    state: Mutex<FlowState>,
+}
+
+impl FlowSession {
+    fn new() -> Self {
+        Self {
+            state: Mutex::new(FlowState {
+                flow: flow::Flow::new(),
+                effects: VecDeque::new(),
+            }),
+        }
+    }
+
+    fn event(&self, json: &str) {
+        let Ok(event) = serde_json::from_str::<flow::Event>(json) else {
+            return;
+        };
+        if let Ok(mut state) = self.state.lock() {
+            let effects = state.flow.handle(event);
+            for effect in effects {
+                if let Ok(line) = serde_json::to_string(&effect) {
+                    state.effects.push_back(line);
+                }
+            }
+        }
+    }
+
+    fn poll(&self) -> Option<String> {
+        let mut state = self.state.lock().ok()?;
+        if state.effects.is_empty() {
+            return None;
+        }
+        let mut out = String::new();
+        while let Some(line) = state.effects.pop_front() {
+            if !out.is_empty() {
+                out.push('\n');
+            }
+            out.push_str(&line);
+        }
+        Some(out)
+    }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_k3rn3l_aikeyboard_core_NativeCore_nativeFlowCreate<'caller>(
+    _unowned_env: EnvUnowned<'caller>,
+    _class: JClass<'caller>,
+) -> jlong {
+    Box::into_raw(Box::new(FlowSession::new())) as jlong
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_k3rn3l_aikeyboard_core_NativeCore_nativeFlowEvent<'caller>(
+    mut unowned_env: EnvUnowned<'caller>,
+    _class: JClass<'caller>,
+    handle: jlong,
+    event_json: JString<'caller>,
+) {
+    if handle == 0 || event_json.is_null() {
+        return;
+    }
+    let outcome = unowned_env.with_env(|env| -> Result<(), jni::errors::Error> {
+        let json = event_json.mutf8_chars(env)?.to_str().to_string();
+        if let Some(session) = unsafe { (handle as *const FlowSession).as_ref() } {
+            session.event(&json);
+        }
+        Ok(())
+    });
+    let _ = outcome.resolve::<ThrowRuntimeExAndDefault>();
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_k3rn3l_aikeyboard_core_NativeCore_nativeFlowPoll<'caller>(
+    mut unowned_env: EnvUnowned<'caller>,
+    _class: JClass<'caller>,
+    handle: jlong,
+) -> JString<'caller> {
+    if handle == 0 {
+        return JString::default();
+    }
+    let outcome = unowned_env.with_env(|env| -> Result<JString<'caller>, jni::errors::Error> {
+        match unsafe { (handle as *const FlowSession).as_ref() } {
+            Some(session) => match session.poll() {
+                Some(text) => JString::from_str(env, text),
+                None => Ok(JString::default()),
+            },
+            None => Ok(JString::default()),
+        }
+    });
+    match outcome.into_outcome() {
+        Outcome::Ok(value) => value,
+        _ => JString::default(),
+    }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_k3rn3l_aikeyboard_core_NativeCore_nativeFlowDestroy<'caller>(
+    _unowned_env: EnvUnowned<'caller>,
+    _class: JClass<'caller>,
+    handle: jlong,
+) {
+    if handle == 0 {
+        return;
+    }
+    let session = unsafe { Box::from_raw(handle as *mut FlowSession) };
+    drop(session);
 }
 
 #[no_mangle]
