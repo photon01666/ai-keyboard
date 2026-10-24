@@ -10,6 +10,7 @@ import android.util.Size
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
+import android.widget.TextView
 import android.view.inputmethod.InlineSuggestionsResponse
 import android.widget.FrameLayout
 import android.widget.HorizontalScrollView
@@ -43,6 +44,8 @@ class AiKeyboardView(context: Context) : FrameLayout(context) {
     private var seconds = 0
     private var polishingMirror = false
     private var errorMode = false
+    private var inlineGeneration = 0
+    private var pasteChip: TextView? = null
     private var swipeGeneration = 0
 
     private val flow = FlowClient { action, text -> handleEffect(action, text) }
@@ -61,7 +64,13 @@ class AiKeyboardView(context: Context) : FrameLayout(context) {
 
     init {
         autofillStrip.isHorizontalScrollBarEnabled = false
-        autofillStrip.setBackgroundColor(0xFF0B0C11.toInt())
+        autofillStrip.background = android.graphics.drawable.GradientDrawable().apply {
+            setColor(0xFF0B0C11.toInt())
+            cornerRadii = floatArrayOf(
+                dp(12f), dp(12f), dp(12f), dp(12f),
+                0f, 0f, 0f, 0f,
+            )
+        }
         autofillStrip.visibility = View.GONE
         autofillRow.orientation = LinearLayout.HORIZONTAL
         autofillRow.gravity = Gravity.CENTER_VERTICAL
@@ -156,25 +165,42 @@ class AiKeyboardView(context: Context) : FrameLayout(context) {
 
     fun showInlineSuggestions(response: InlineSuggestionsResponse): Boolean {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return false
-        autofillRow.removeAllViews()
 
         val suggestions = response.inlineSuggestions
         if (suggestions.isNullOrEmpty()) {
-            setAutofillStripVisible(false)
+            // Don't destroy an already-showing chip (e.g. from the password
+            // field) just because a sibling field (username) has no matches.
+            if (autofillRow.childCount == 0) {
+                inlineGeneration++
+                setAutofillStripVisible(false)
+            }
             return false
         }
 
+        // Skip re-processing if suggestions are already showing.
+        if (autofillRow.childCount > 0) return true
+
+        val generation = ++inlineGeneration
+
+        val width = dp(240f).toInt()
+        val height = dp(56f).toInt()
         val size = Size(dp(360f).toInt(), dp(56f).toInt())
         for (suggestion in suggestions.take(3)) {
             try {
                 suggestion.inflate(context, size, context.mainExecutor) { view ->
-                    view.layoutParams = LinearLayout.LayoutParams(
-                        LinearLayout.LayoutParams.WRAP_CONTENT,
-                        LinearLayout.LayoutParams.MATCH_PARENT,
-                    ).apply { marginEnd = dp(6f).toInt() }
+                    if (generation != inlineGeneration) return@inflate
+                    // Explicit size: InlineContentView reports no intrinsic size,
+                    // so WRAP_CONTENT would measure the chip to 0 width.
+                    view.layoutParams = LinearLayout.LayoutParams(width, height)
+                        .apply { marginEnd = dp(6f).toInt() }
                     autofillRow.addView(view)
+                    // Now that a view is added, the strip can actually show.
                     setAutofillStripVisible(true)
-                    Log.d(TAG, "inline suggestion added: ${autofillRow.childCount}")
+                    view.post {
+                        Log.d(TAG, "inline view ${view.width}x${view.height} added")
+                        view.requestLayout()
+                        view.invalidate()
+                    }
                 }
             } catch (error: Throwable) {
                 Log.w(TAG, "could not inflate inline suggestion: ${error.message}")
@@ -184,8 +210,42 @@ class AiKeyboardView(context: Context) : FrameLayout(context) {
     }
 
     fun clearInlineSuggestions() {
+        inlineGeneration++
         autofillRow.removeAllViews()
+        pasteChip = null
         setAutofillStripVisible(false)
+    }
+
+    /** Shows or hides a "Paste" chip based on clipboard contents. */
+    fun updatePasteChip() {
+        val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+        val clip = clipboard.primaryClip
+        val hasText = clip != null && clip.itemCount > 0 &&
+            !clip.getItemAt(0).coerceToText(context).isNullOrBlank()
+
+        if (hasText && pasteChip == null) {
+            val chip = TextView(context).apply {
+                text = "Paste"
+                setTextColor(0xFFF5F6FA.toInt())
+                textSize = 14f
+                typeface = android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.BOLD)
+                gravity = android.view.Gravity.CENTER
+                setPadding(dp(14f).toInt(), dp(8f).toInt(), dp(14f).toInt(), dp(8f).toInt())
+                background = android.graphics.drawable.GradientDrawable().apply {
+                    setColor(0xFF262832.toInt())
+                    cornerRadius = dp(20f)
+                    setStroke(dp(1f).toInt(), 0xFF3B3355.toInt())
+                }
+                setOnClickListener { service.pasteClipboard() }
+            }
+            pasteChip = chip
+            autofillRow.addView(chip, 0)
+        } else if (!hasText && pasteChip != null) {
+            autofillRow.removeView(pasteChip)
+            pasteChip = null
+        }
+        // Show strip if we have either inline suggestions or a paste chip.
+        if (autofillRow.childCount > 0) setAutofillStripVisible(true)
     }
 
     private fun setAutofillStripVisible(visible: Boolean) {
@@ -208,6 +268,11 @@ class AiKeyboardView(context: Context) : FrameLayout(context) {
     fun refresh() {
         gboard.refresh()
         if (!aiVisible) gboard.setHint("Tap AI to talk")
+    }
+
+    fun setNumberMode(enabled: Boolean) {
+        gboard.setNumberMode(enabled)
+        refresh()
     }
 
     fun autoShift(caps: Boolean) {

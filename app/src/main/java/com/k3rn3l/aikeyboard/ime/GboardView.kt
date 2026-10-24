@@ -120,10 +120,22 @@ class GboardView(context: Context) : View(context) {
 
     private val keyRects = mutableListOf<RectF>()
     private var rows: List<List<Key>> = letters()
+
+    fun setNumberMode(enabled: Boolean) {
+        if (numberMode == enabled) return
+        numberMode = enabled
+        symbols = false
+        rows = if (numberMode) numberPad() else letters()
+        keyRects.clear()
+        invalidate()
+    }
+
+    fun isNumberMode(): Boolean = numberMode
     private var shift = false
     private var capsLock = false
     private var lastShiftTap = 0L
     private var symbols = false
+    private var numberMode = false
     private var hint = "Tap AI to talk"
 
     private val swipePoints = mutableListOf<PointF>()
@@ -181,7 +193,7 @@ class GboardView(context: Context) : View(context) {
     }
 
     fun refresh() {
-        rows = if (symbols) symbols() else letters()
+        rows = if (numberMode) numberPad() else if (symbols) symbols() else letters()
         invalidate()
     }
 
@@ -540,9 +552,16 @@ class GboardView(context: Context) : View(context) {
             }
             Kind.DELETE -> listener?.onBackspace()
             Kind.SYMBOLS -> {
-                symbols = !symbols
-                rows = if (symbols) symbols() else letters()
+                if (numberMode) {
+                    numberMode = false
+                    symbols = false
+                    rows = letters()
+                } else {
+                    symbols = !symbols
+                    rows = if (symbols) symbols() else letters()
+                }
                 shift = false
+                keyRects.clear()
                 invalidate()
             }
             Kind.ENTER -> {
@@ -597,6 +616,21 @@ class GboardView(context: Context) : View(context) {
             Key("space", " ", Kind.SPACE, 4.3f),
             Key(".", ".", Kind.CHAR, 1f),
             Key("⌫", "DEL", Kind.DELETE, 1.5f),
+        ),
+    )
+
+    private fun numberPad(): List<List<Key>> = listOf(
+        "123".map { Key(it.toString(), it.toString()) },
+        "456".map { Key(it.toString(), it.toString()) },
+        "789".map { Key(it.toString(), it.toString()) },
+        listOf(Key("*", "*", Kind.CHAR, 1f), Key("0", "0", Kind.CHAR, 1f), Key("#", "#", Kind.CHAR, 1f)) +
+            Key("⌫", "DEL", Kind.DELETE, 1.5f),
+        listOf(
+            Key("ABC", "ABC", Kind.SYMBOLS, 1.5f),
+            Key(",", ",", Kind.CHAR, 1f),
+            Key("space", " ", Kind.SPACE, 4.3f),
+            Key(".", ".", Kind.CHAR, 1f),
+            Key("⏎", "ENTER", Kind.ENTER, 1.5f),
         ),
     )
 }

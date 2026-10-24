@@ -18,6 +18,7 @@ import android.view.inputmethod.InlineSuggestionsResponse
 import android.widget.Toast
 import android.widget.inline.InlinePresentationSpec
 import android.inputmethodservice.InputMethodService
+import android.content.res.ColorStateList
 import android.graphics.Typeface
 import android.util.TypedValue
 import androidx.autofill.inline.UiVersions
@@ -44,9 +45,18 @@ class AiKeyboardService : InputMethodService() {
 
     override fun onStartInputView(info: EditorInfo?, restarting: Boolean) {
         super.onStartInputView(info, restarting)
+        val number = isNumberField(info)
+        root?.setNumberMode(number)
         root?.clearInlineSuggestions()
         root?.refresh()
         updateShift()
+    }
+
+    private fun isNumberField(info: EditorInfo?): Boolean {
+        if (info == null) return false
+        val cls = info.inputType and android.text.InputType.TYPE_MASK_CLASS
+        return cls == android.text.InputType.TYPE_CLASS_NUMBER ||
+            cls == android.text.InputType.TYPE_CLASS_PHONE
     }
 
     @TargetApi(Build.VERSION_CODES.R)
@@ -87,12 +97,15 @@ class AiKeyboardService : InputMethodService() {
         val startIcon = ImageViewStyle.Builder()
             .setMaxWidth(dp(20))
             .setMaxHeight(dp(20))
+            .setTintList(ColorStateList.valueOf(0xFFFFFFFF.toInt()))
             .build()
         val style = InlineSuggestionUi.newStyleBuilder()
+            .setLayoutDirection(View.LAYOUT_DIRECTION_LTR)
             .setChipStyle(chip)
             .setTitleStyle(title)
             .setSubtitleStyle(subtitle)
             .setStartIconStyle(startIcon)
+            .setEndIconStyle(startIcon)
             .setSingleIconChipStyle(chip)
             .setSingleIconChipIconStyle(startIcon)
             .build()
@@ -162,6 +175,18 @@ class AiKeyboardService : InputMethodService() {
         val before = connection.getTextBeforeCursor(1, 0)?.toString().orEmpty()
         val prefix = if (before.isNotEmpty() && !before.last().isWhitespace()) " " else ""
         connection.commitText("$prefix$text ", 1)
+        updateShift()
+    }
+
+    /** Commits the current clipboard text. */
+    fun pasteClipboard() {
+        val clipboard = getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+        val clip = clipboard.primaryClip ?: return
+        if (clip.itemCount == 0) return
+        val text = clip.getItemAt(0).coerceToText(this)?.toString() ?: return
+        if (text.isEmpty()) return
+        val connection = currentInputConnection ?: return
+        connection.commitText(text, 1)
         updateShift()
     }
 
