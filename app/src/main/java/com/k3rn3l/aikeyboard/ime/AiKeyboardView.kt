@@ -251,7 +251,7 @@ class AiKeyboardView(context: Context) : FrameLayout(context) {
                 setOnClickListener { service.pasteClipboard() }
             }
             pasteChip = chip
-            autofillRow.addView(chip, 0)
+            autofillRow.addView(chip)
         } else if (!hasText && pasteChip != null) {
             autofillRow.removeView(pasteChip)
             pasteChip = null
