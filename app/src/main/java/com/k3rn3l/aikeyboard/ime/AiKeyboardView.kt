@@ -84,6 +84,17 @@ class AiKeyboardView(context: Context) : FrameLayout(context) {
         )
 
         addView(gboard, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
+
+        // Clipboard paste chip
+        try {
+            val cb = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+            cb.addPrimaryClipChangedListener {
+                post { updatePasteChip() }
+            }
+        } catch (e: Exception) {
+            android.util.Log.w("AiKeyboard", "clipboard listener failed: ${e.message}")
+        }
+        post { updatePasteChip() }
         addView(panel, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
         addView(autofillStrip, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
         panel.visibility = View.GONE
@@ -213,7 +224,8 @@ class AiKeyboardView(context: Context) : FrameLayout(context) {
         inlineGeneration++
         autofillRow.removeAllViews()
         pasteChip = null
-        setAutofillStripVisible(false)
+        // Re-add paste chip if clipboard has text.
+        post { updatePasteChip() }
     }
 
     /** Shows or hides a "Paste" chip based on clipboard contents. */
