@@ -34,6 +34,10 @@ class AiKeyboardView(context: Context) : FrameLayout(context) {
 
     private val flow = FlowClient { action, text -> handleEffect(action, text) }
 
+    private val sessionTimeout = Runnable {
+        flow.timeout()
+    }
+
     private val ticker = object : Runnable {
         override fun run() {
             seconds++
@@ -57,9 +61,14 @@ class AiKeyboardView(context: Context) : FrameLayout(context) {
         }
 
         panel.onStop = {
+            stopSessionTimer()
             if (errorMode) startAi() else flow.stop()
         }
-        panel.onDone = { flow.done() }
+        panel.onDone = {
+            // Done wins over the 60s cap at the boundary.
+            stopSessionTimer()
+            flow.done()
+        }
     }
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
@@ -90,6 +99,7 @@ class AiKeyboardView(context: Context) : FrameLayout(context) {
         client = null
         flow.destroy()
         stopTicker()
+        stopSessionTimer()
         super.onDetachedFromWindow()
     }
 
@@ -120,6 +130,7 @@ class AiKeyboardView(context: Context) : FrameLayout(context) {
 
     fun onKeyboardHidden() {
         stopTicker()
+        stopSessionTimer()
         flow.hidden()
     }
 
@@ -156,6 +167,7 @@ class AiKeyboardView(context: Context) : FrameLayout(context) {
 
             "hide_panel" -> {
                 stopTicker()
+                stopSessionTimer()
                 polishingMirror = false
                 errorMode = false
                 hidePanel()
@@ -166,6 +178,7 @@ class AiKeyboardView(context: Context) : FrameLayout(context) {
                 polishingMirror = false
                 panel.setPolishing(false)
                 panel.setState(LiveClient.State.LISTENING)
+                startSessionTimer()
             }
 
             "show_done" -> panel.setDoneAvailable(true)
@@ -173,6 +186,7 @@ class AiKeyboardView(context: Context) : FrameLayout(context) {
             "show_stop" -> panel.setDoneAvailable(false)
 
             "show_polishing" -> {
+                stopSessionTimer()
                 polishingMirror = true
                 panel.setPolishing(true)
             }
@@ -196,6 +210,7 @@ class AiKeyboardView(context: Context) : FrameLayout(context) {
             }
 
             "show_error" -> {
+                stopSessionTimer()
                 errorMode = true
                 polishingMirror = false
                 panel.setPolishing(false)
@@ -208,6 +223,15 @@ class AiKeyboardView(context: Context) : FrameLayout(context) {
 
             else -> Log.w(TAG, "unknown flow effect: $action")
         }
+    }
+
+    private fun startSessionTimer() {
+        handler.removeCallbacks(sessionTimeout)
+        handler.postDelayed(sessionTimeout, 60_000)
+    }
+
+    private fun stopSessionTimer() {
+        handler.removeCallbacks(sessionTimeout)
     }
 
     private fun startTicker() {

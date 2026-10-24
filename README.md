@@ -8,7 +8,8 @@ listening surface. Speak naturally; text is committed as you pause. When an utte
 is finalized, the main button becomes **DONE**. Tapping Done runs a Gemini polish pass
 (grammar, punctuation, names, homophones), then closes the session automatically.
 
-There is no timed auto-stop and no timed polish. Done is the trigger.
+Done is the trigger for polish. If Done is not tapped, the session closes itself
+after 60 seconds of listening. There is no timed polish.
 
 ## What is Rust and what is Kotlin
 
@@ -69,6 +70,8 @@ Machine-specific paths live in `gradle.properties` (`org.gradle.java.home`) and
 4. Tap **AI** — the current field is cleared and listening starts.
 5. Speak. Interim words show in the transcript card; finalized text is committed.
 6. When you stop, the big button becomes **DONE**. Tap it to polish and close.
+   - If Done is not tapped within **60 seconds of listening**, the session closes
+     automatically without polishing.
    - **STOP LISTENING** (before any speech) aborts without polishing.
    - While polishing, the button is locked, a spinner replaces the live dot, and the
      Back key is consumed. Hiding the keyboard defers teardown until the polish ends.
@@ -92,9 +95,9 @@ Gemini 3.5 Transcribe Live is roughly **$0.009/min** (about **$0.54/hour**) on t
 tier: $0.005/min audio input + $0.004/min text output. The repair pass uses Gemini 3.6
 Flash at $0.75/$3.75 per 1M input/output tokens, typically **$0.001–0.002 per polish**.
 
-Billing accrues while the Live session is open, including silence. Since sessions now
-end after Done, an average message costs well under a cent plus a fraction of a cent
-for the polish. Leaving the AI panel open without speaking still incurs audio cost.
+Billing accrues while the Live session is open, including silence. A session ends after
+Done or automatically after 60 seconds, so one run costs at most about a cent plus a
+fraction of a cent for the polish.
 
 ## Privacy
 

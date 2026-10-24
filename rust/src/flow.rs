@@ -35,6 +35,7 @@ pub enum Event {
     },
     Closed,
     Hidden,
+    Timeout,
     Error {
         message: String,
     },
@@ -329,6 +330,23 @@ impl Flow {
                 }
             }
 
+            Event::Timeout => match self.phase {
+                Phase::Listening | Phase::Connecting => {
+                    // Done was never tapped within the cap. Close without polish.
+                    self.phase = Phase::Finishing;
+                    self.done_visible = false;
+                    vec![
+                        StopSession,
+                        HidePanel,
+                        hint("Tap AI to talk"),
+                        toast("Session closed automatically after 60 seconds"),
+                    ]
+                }
+                // Done was tapped; the polish owns the transition now.
+                Phase::Polishing => Vec::new(),
+                _ => Vec::new(),
+            },
+
             Event::Hidden => match self.phase {
                 Phase::Polishing => {
                     self.pending_hide = true;
@@ -550,6 +568,53 @@ mod tests {
             }]
         );
         assert_eq!(flow.phase(), Phase::Error);
+    }
+
+    #[test]
+    fn timeout_closes_a_session_where_done_was_not_tapped() {
+        let mut flow = started();
+        assert_eq!(
+            flow.handle(Event::Timeout),
+            vec![
+                Effect::StopSession,
+                Effect::HidePanel,
+                Effect::Hint {
+                    text: "Tap AI to talk".into()
+                },
+                Effect::Toast {
+                    text: "Session closed automatically after 60 seconds".into()
+                }
+            ]
+        );
+        assert_eq!(flow.phase(), Phase::Finishing);
+    }
+
+    #[test]
+    fn timeout_during_polish_is_ignored() {
+        let mut flow = started();
+        flow.handle(Event::Final);
+        flow.handle(Event::Done);
+        assert_eq!(flow.handle(Event::Timeout), Vec::<Effect>::new());
+        assert_eq!(
+            flow.handle(Event::PolishFinished { ok: true }),
+            vec![
+                Effect::StopSession,
+                Effect::HidePanel,
+                Effect::Hint {
+                    text: "Polished ✓".into()
+                }
+            ]
+        );
+    }
+
+    #[test]
+    fn timeout_while_connecting_also_closes() {
+        let mut flow = Flow::new();
+        flow.handle(Event::Start { polish: true });
+        assert_eq!(flow.phase(), Phase::Connecting);
+        let effects = flow.handle(Event::Timeout);
+        assert_eq!(effects[0], Effect::StopSession);
+        assert_eq!(flow.phase(), Phase::Finishing);
     }
 
     #[test]

@@ -61,6 +61,7 @@ class FlowClient(private val onEffect: (action: String, text: String?) -> Unit) 
     fun polishFinished(ok: Boolean) = send(JSONObject().put("event", "polish_finished").put("ok", ok))
     fun closed() = send(JSONObject().put("event", "closed"))
     fun hidden() = send(JSONObject().put("event", "hidden"))
+    fun timeout() = send(JSONObject().put("event", "timeout"))
     fun error(message: String) = send(
         JSONObject().put("event", "error").put("message", message)
     )
