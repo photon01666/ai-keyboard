@@ -80,7 +80,8 @@ fn toast(text: &str) -> Effect {
 pub struct Flow {
     phase: Phase,
     polish_enabled: bool,
-    done_visible: bool,
+    has_final: bool,
+    speech_active: bool,
     speech_during_polish: bool,
     final_during_polish: bool,
     pending_hide: bool,
@@ -95,7 +96,8 @@ impl Default for Flow {
         Self {
             phase: Phase::Idle,
             polish_enabled: true,
-            done_visible: false,
+            has_final: false,
+            speech_active: false,
             speech_during_polish: false,
             final_during_polish: false,
             pending_hide: false,
@@ -119,7 +121,8 @@ impl Flow {
     fn reset_for_start(&mut self, polish: bool) {
         self.phase = Phase::Connecting;
         self.polish_enabled = polish;
-        self.done_visible = false;
+        self.has_final = false;
+        self.speech_active = false;
         self.speech_during_polish = false;
         self.final_during_polish = false;
         self.pending_hide = false;
@@ -158,8 +161,27 @@ impl Flow {
 
             Event::Final => match self.phase {
                 Phase::Listening => {
-                    self.done_visible = true;
-                    vec![ShowDone]
+                    self.has_final = true;
+                    if !self.speech_active {
+                        // Auto-polish: speech has already stopped (or never started).
+                        self.has_final = false;
+                        self.speech_active = false;
+                        if self.polish_enabled {
+                            self.phase = Phase::Polishing;
+                            self.speech_during_polish = false;
+                            self.final_during_polish = false;
+                            self.pending_hide = false;
+                            self.stop_requested = false;
+                            self.pending_error = None;
+                            self.session_closed = false;
+                            vec![ShowPolishing, Polish]
+                        } else {
+                            self.phase = Phase::Finishing;
+                            vec![StopSession, HidePanel, hint("Tap AI to talk")]
+                        }
+                    } else {
+                        Vec::new()
+                    }
                 }
                 Phase::Polishing => {
                     self.final_during_polish = true;
@@ -168,32 +190,51 @@ impl Flow {
                 _ => Vec::new(),
             },
 
-            Event::Speech { active } => {
-                if !active {
-                    return Vec::new();
-                }
-                match self.phase {
-                    Phase::Listening => {
-                        if self.done_visible {
-                            self.done_visible = false;
-                            vec![ShowStop]
+            Event::Speech { active } => match self.phase {
+                Phase::Listening => {
+                    if active {
+                        // Speech (re)started; invalidate any stale final.
+                        self.speech_active = true;
+                        self.has_final = false;
+                        Vec::new()
+                    } else {
+                        // Speech stopped. Auto-polish if we have a final transcript.
+                        self.speech_active = false;
+                        if self.has_final {
+                            self.has_final = false;
+                            if self.polish_enabled {
+                                self.phase = Phase::Polishing;
+                                self.speech_during_polish = false;
+                                self.final_during_polish = false;
+                                self.pending_hide = false;
+                                self.stop_requested = false;
+                                self.pending_error = None;
+                                self.session_closed = false;
+                                vec![ShowPolishing, Polish]
+                            } else {
+                                self.phase = Phase::Finishing;
+                                vec![StopSession, HidePanel, hint("Tap AI to talk")]
+                            }
                         } else {
                             Vec::new()
                         }
                     }
-                    Phase::Polishing => {
-                        self.speech_during_polish = true;
-                        Vec::new()
-                    }
-                    _ => Vec::new(),
                 }
+                Phase::Polishing => {
+                    if active {
+                        self.speech_during_polish = true;
+                    }
+                    Vec::new()
+                }
+                _ => Vec::new(),
             }
 
             Event::Done => {
-                if self.phase != Phase::Listening || !self.done_visible {
+                if self.phase != Phase::Listening || !self.has_final {
                     return Vec::new();
                 }
-                self.done_visible = false;
+                self.has_final = false;
+    self.speech_active = false;
 
                 if self.polish_enabled {
                     self.phase = Phase::Polishing;
@@ -235,14 +276,16 @@ impl Flow {
 
                 if let Some(message) = self.pending_error.take() {
                     self.phase = Phase::Error;
-                    self.done_visible = false;
+                    self.has_final = false;
+                    self.speech_active = false;
                     self.pending_hide = false;
                     return vec![ShowError { text: message }];
                 }
 
                 if self.pending_hide {
                     self.phase = Phase::Idle;
-                    self.done_visible = false;
+                    self.has_final = false;
+                    self.speech_active = false;
                     self.pending_hide = false;
                     self.final_during_polish = false;
                     let mut effects = Vec::new();
@@ -267,24 +310,26 @@ impl Flow {
                     if !ok {
                         effects.push(toast("Polish failed — stopped listening"));
                     }
-                    self.done_visible = false;
+                    self.has_final = false;
+                    self.speech_active = false;
                     return effects;
                 }
 
                 if self.speech_during_polish {
                     self.phase = Phase::Listening;
-                    self.done_visible = self.final_during_polish;
+                    self.has_final = self.final_during_polish;
                     self.speech_during_polish = false;
                     self.final_during_polish = false;
                     let mut effects = vec![ShowListening];
-                    if self.done_visible {
+                    if self.has_final {
                         effects.push(ShowDone);
                     }
                     return effects;
                 }
 
                 self.phase = Phase::Finishing;
-                self.done_visible = false;
+                self.has_final = false;
+                self.speech_active = false;
                 let mut effects = Vec::new();
                 if !self.session_closed {
                     effects.push(StopSession);
@@ -334,7 +379,8 @@ impl Flow {
                 Phase::Listening | Phase::Connecting => {
                     // Done was never tapped within the cap. Close without polish.
                     self.phase = Phase::Finishing;
-                    self.done_visible = false;
+                    self.has_final = false;
+                    self.speech_active = false;
                     vec![
                         StopSession,
                         HidePanel,
@@ -354,7 +400,8 @@ impl Flow {
                 }
                 Phase::Listening | Phase::Connecting | Phase::Error => {
                     self.phase = Phase::Idle;
-                    self.done_visible = false;
+                    self.has_final = false;
+                    self.speech_active = false;
                     self.session_closed = false;
                     vec![CancelSession, HidePanel, hint("Tap AI to talk")]
                 }
@@ -370,7 +417,8 @@ impl Flow {
                 Phase::Finishing | Phase::Idle => Vec::new(),
                 _ => {
                     self.phase = Phase::Error;
-                    self.done_visible = false;
+                    self.has_final = false;
+                    self.speech_active = false;
                     vec![ShowError { text: message }]
                 }
             },
@@ -412,24 +460,29 @@ mod tests {
     }
 
     #[test]
-    fn done_appears_after_final_and_late_interim_keeps_it() {
+    fn final_with_silence_auto_polishes() {
         let mut flow = started();
-        assert_eq!(flow.handle(Event::Final), vec![Effect::ShowDone]);
-        assert_eq!(flow.handle(Event::Interim), Vec::<Effect>::new());
-        assert_eq!(flow.handle(Event::Done), vec![Effect::ShowPolishing, Effect::Polish]);
+        // Speech never started, so speech_active is false; Final auto-polishes.
+        assert_eq!(
+            flow.handle(Event::Final),
+            vec![Effect::ShowPolishing, Effect::Polish]
+        );
         assert_eq!(flow.phase(), Phase::Polishing);
+        assert_eq!(flow.handle(Event::Interim), Vec::<Effect>::new());
     }
 
     #[test]
-    fn second_utterance_restores_done_after_speech_start() {
+    fn second_utterance_auto_polishes_after_silence() {
         let mut flow = started();
-        flow.handle(Event::Final);
-        assert_eq!(flow.handle(Event::Speech { active: true }), vec![Effect::ShowStop]);
-        assert_eq!(flow.handle(Event::Final), vec![Effect::ShowDone]);
+        // Speech starts, then stops without a final yet.
+        assert_eq!(flow.handle(Event::Speech { active: true }), Vec::<Effect>::new());
+        assert_eq!(flow.handle(Event::Speech { active: false }), Vec::<Effect>::new());
+        // Final arrives after silence -> auto-polish.
         assert_eq!(
-            flow.handle(Event::Done),
+            flow.handle(Event::Final),
             vec![Effect::ShowPolishing, Effect::Polish]
         );
+        assert_eq!(flow.phase(), Phase::Polishing);
     }
 
     #[test]
@@ -525,13 +578,16 @@ mod tests {
     }
 
     #[test]
-    fn polish_disabled_makes_done_close_immediately() {
+    fn polish_disabled_auto_closes_on_silence() {
         let mut flow = Flow::new();
         flow.handle(Event::Start { polish: false });
         flow.handle(Event::Ready);
-        flow.handle(Event::Final);
+        // Final arrives while speech is active -> no auto-close yet.
+        assert_eq!(flow.handle(Event::Speech { active: true }), Vec::<Effect>::new());
+        assert_eq!(flow.handle(Event::Final), Vec::<Effect>::new());
+        // Speech stops -> auto-close (polish disabled).
         assert_eq!(
-            flow.handle(Event::Done),
+            flow.handle(Event::Speech { active: false }),
             vec![
                 Effect::StopSession,
                 Effect::HidePanel,

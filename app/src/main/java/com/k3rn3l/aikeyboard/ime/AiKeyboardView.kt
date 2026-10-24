@@ -134,11 +134,6 @@ class AiKeyboardView(context: Context) : FrameLayout(context) {
             stopSessionTimer()
             if (errorMode) startAi() else flow.stop()
         }
-        panel.onDone = {
-            // Done wins over the 60s cap at the boundary.
-            stopSessionTimer()
-            flow.done()
-        }
     }
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
@@ -208,12 +203,6 @@ class AiKeyboardView(context: Context) : FrameLayout(context) {
                         .apply { marginEnd = dp(6f).toInt() }
                     autofillRow.addView(view)
                     hasInlineSuggestions = true
-                    // Reposition paste chip to the middle.
-                    pasteChip?.let { chip ->
-                        autofillRow.removeView(chip)
-                        val mid = autofillRow.childCount / 2
-                        autofillRow.addView(chip, mid)
-                    }
                     // Now that a view is added, the strip can actually show.
                     setAutofillStripVisible(true)
                     view.post {
@@ -233,6 +222,7 @@ class AiKeyboardView(context: Context) : FrameLayout(context) {
         inlineGeneration++
         autofillRow.removeAllViews()
         hasInlineSuggestions = false
+        pasteChip?.let { removeView(it) }
         pasteChip = null
         // Re-add paste chip if clipboard has text.
         post { updatePasteChip() }
@@ -261,21 +251,31 @@ class AiKeyboardView(context: Context) : FrameLayout(context) {
                 setOnClickListener { service.pasteClipboard() }
             }
             pasteChip = chip
-            val mid = autofillRow.childCount / 2
-            autofillRow.addView(chip, mid)
+            addView(chip, FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+            ).apply {
+                gravity = android.view.Gravity.END or android.view.Gravity.TOP
+                topMargin = dp(8f).toInt()
+                rightMargin = dp(8f).toInt()
+            })
         } else if (!hasText && pasteChip != null) {
-            autofillRow.removeView(pasteChip)
+            removeView(pasteChip)
             pasteChip = null
         }
         // Show strip if we have either inline suggestions or a paste chip.
-        if (autofillRow.childCount > 0) setAutofillStripVisible(true)
+        if (autofillRow.childCount > 0 || pasteChip != null) setAutofillStripVisible(true)
+        else setAutofillStripVisible(false)
     }
 
     private fun setAutofillStripVisible(visible: Boolean) {
-        val target = visible && autofillRow.childCount > 0 && !aiVisible
+        val hasContent = autofillRow.childCount > 0 || pasteChip != null
+        val target = visible && hasContent && !aiVisible
         val newVisibility = if (target) View.VISIBLE else View.GONE
         if (autofillStrip.visibility == newVisibility) return
         autofillStrip.visibility = newVisibility
+        // Show/hide paste chip with the strip.
+        pasteChip?.visibility = if (target) View.VISIBLE else View.GONE
         requestLayout()
     }
 
@@ -372,9 +372,6 @@ class AiKeyboardView(context: Context) : FrameLayout(context) {
                 startSessionTimer()
             }
 
-            "show_done" -> panel.setDoneAvailable(true)
-
-            "show_stop" -> panel.setDoneAvailable(false)
 
             "show_polishing" -> {
                 stopSessionTimer()

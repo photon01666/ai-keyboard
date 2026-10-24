@@ -29,7 +29,6 @@ import kotlin.math.sin
 class AiPanelView(context: Context) : LinearLayout(context) {
 
     var onStop: (() -> Unit)? = null
-    var onDone: (() -> Unit)? = null
 
     private val dot = PulseDotView(context)
     private val spinner = ProgressBar(context, null, android.R.attr.progressBarStyleSmall)
@@ -45,7 +44,6 @@ class AiPanelView(context: Context) : LinearLayout(context) {
     private var smart = true
     private var languageLabel = "AUTO"
     private var polishing = false
-    private var doneAvailable = false
 
     init {
         orientation = VERTICAL
@@ -176,7 +174,7 @@ class AiPanelView(context: Context) : LinearLayout(context) {
             isClickable = true
             isFocusable = true
             setOnClickListener {
-                if (doneAvailable) onDone?.invoke() else onStop?.invoke()
+                onStop?.invoke()
             }
         }
         addView(stop, LayoutParams(LayoutParams.MATCH_PARENT, dp(50)))
@@ -192,7 +190,6 @@ class AiPanelView(context: Context) : LinearLayout(context) {
     fun setState(state: LiveClient.State, detail: String? = null) {
         mode = state
         if (polishing) return
-        doneAvailable = false
         stop.animate().cancel()
         stop.scaleX = 1f
         stop.scaleY = 1f
@@ -291,46 +288,13 @@ class AiPanelView(context: Context) : LinearLayout(context) {
     }
 
     /**
-     * The Done button is the only trigger for the polish pass. It appears after
-     * an utterance is finalised and disappears as soon as the user speaks again.
-     */
-    fun setDoneAvailable(available: Boolean) {
-        if (polishing || doneAvailable == available) return
-        doneAvailable = available
-        stop.animate().cancel()
-
-        if (available) {
-            stop.text = "DONE"
-            stop.background = GradientDrawable(
-                GradientDrawable.Orientation.LEFT_RIGHT,
-                intArrayOf(0xFF7C5CFF.toInt(), 0xFF35E0FF.toInt()),
-            ).apply { cornerRadius = dp(16).toFloat() }
-            stop.setTextColor(0xFF071018.toInt())
-            stop.alpha = 1f
-            stop.isEnabled = true
-            stop.isClickable = true
-            stop.isFocusable = true
-            subtitle.text = "Tap Done to polish and close"
-            stop.scaleX = 0.95f
-            stop.scaleY = 0.95f
-            stop.animate().scaleX(1f).scaleY(1f).setDuration(150).start()
-        } else if (mode == LiveClient.State.LISTENING) {
-            stop.text = "STOP LISTENING"
-            stop.setTextColor(Color.WHITE)
-            setStopColor(0xFFFF4D5E.toInt())
-            updateSubtitle()
-        }
-    }
-
-    /**
      * Distinct, non-cancelable state while the repair pass runs. The only button
      * is disabled on purpose: the session ends by itself when this finishes.
      */
     fun setPolishing(active: Boolean) {
         polishing = active
         if (active) {
-            doneAvailable = false
-            stop.animate().cancel()
+                stop.animate().cancel()
             stop.scaleX = 1f
             stop.scaleY = 1f
             dot.visibility = GONE
@@ -364,7 +328,6 @@ class AiPanelView(context: Context) : LinearLayout(context) {
 
     fun reset() {
         polishing = false
-        doneAvailable = false
         stop.animate().cancel()
         stop.scaleX = 1f
         stop.scaleY = 1f
