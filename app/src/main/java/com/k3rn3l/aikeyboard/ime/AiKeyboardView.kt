@@ -201,7 +201,13 @@ class AiKeyboardView(context: Context) : FrameLayout(context) {
                     // so WRAP_CONTENT would measure the chip to 0 width.
                     view.layoutParams = LinearLayout.LayoutParams(width, height)
                         .apply { marginEnd = dp(6f).toInt() }
-                    autofillRow.addView(view)
+                    // Insert before paste chip (if exists) so paste stays on the right.
+                    val insertAt = if (pasteChip != null && pasteChip!!.parent == autofillRow) {
+                        autofillRow.indexOfChild(pasteChip)
+                    } else {
+                        -1
+                    }
+                    autofillRow.addView(view, if (insertAt >= 0) insertAt else -1)
                     hasInlineSuggestions = true
                     // Now that a view is added, the strip can actually show.
                     setAutofillStripVisible(true)
@@ -222,7 +228,7 @@ class AiKeyboardView(context: Context) : FrameLayout(context) {
         inlineGeneration++
         autofillRow.removeAllViews()
         hasInlineSuggestions = false
-        pasteChip?.let { removeView(it) }
+        pasteChip?.let { autofillRow.removeView(it) }
         pasteChip = null
         // Re-add paste chip if clipboard has text.
         post { updatePasteChip() }
@@ -234,7 +240,6 @@ class AiKeyboardView(context: Context) : FrameLayout(context) {
         val clip = clipboard.primaryClip
         val hasText = clip != null && clip.itemCount > 0 &&
             !clip.getItemAt(0).coerceToText(context).isNullOrBlank()
-
         if (hasText && pasteChip == null) {
             val chip = TextView(context).apply {
                 text = "Paste"
@@ -251,31 +256,20 @@ class AiKeyboardView(context: Context) : FrameLayout(context) {
                 setOnClickListener { service.pasteClipboard() }
             }
             pasteChip = chip
-            addView(chip, FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.WRAP_CONTENT,
-                FrameLayout.LayoutParams.WRAP_CONTENT,
-            ).apply {
-                gravity = android.view.Gravity.END or android.view.Gravity.TOP
-                topMargin = dp(8f).toInt()
-                rightMargin = dp(8f).toInt()
-            })
+            autofillRow.addView(chip)
         } else if (!hasText && pasteChip != null) {
-            removeView(pasteChip)
+            autofillRow.removeView(pasteChip)
             pasteChip = null
         }
         // Show strip if we have either inline suggestions or a paste chip.
-        if (autofillRow.childCount > 0 || pasteChip != null) setAutofillStripVisible(true)
-        else setAutofillStripVisible(false)
+        if (hasText) setAutofillStripVisible(true)
     }
 
     private fun setAutofillStripVisible(visible: Boolean) {
-        val hasContent = autofillRow.childCount > 0 || pasteChip != null
-        val target = visible && hasContent && !aiVisible
+        val target = visible && autofillRow.childCount > 0 && !aiVisible
         val newVisibility = if (target) View.VISIBLE else View.GONE
         if (autofillStrip.visibility == newVisibility) return
         autofillStrip.visibility = newVisibility
-        // Show/hide paste chip with the strip.
-        pasteChip?.visibility = if (target) View.VISIBLE else View.GONE
         requestLayout()
     }
 
