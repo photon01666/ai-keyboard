@@ -205,6 +205,11 @@ class AiKeyboardView(context: Context) : FrameLayout(context) {
                     view.layoutParams = LinearLayout.LayoutParams(width, height)
                         .apply { marginEnd = dp(6f).toInt() }
                     autofillRow.addView(view)
+                    // Keep paste chip on the right.
+                    pasteChip?.let { chip ->
+                        autofillRow.removeView(chip)
+                        autofillRow.addView(chip)
+                    }
                     // Now that a view is added, the strip can actually show.
                     setAutofillStripVisible(true)
                     view.post {
