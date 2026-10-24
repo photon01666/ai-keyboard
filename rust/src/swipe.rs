@@ -152,7 +152,7 @@ fn score_word(
     Some(sequence + spatial + start_penalty + end_penalty + length_penalty + unused * 0.07)
 }
 
-pub fn decode(path: &[[f32; 2]], keys: &[Key]) -> Option<(String, f32)> {
+pub fn decode(path: &[[f32; 2]], keys: &[Key], extra: &[String]) -> Option<(String, f32)> {
     if path.len() < 2 || keys.len() < 2 {
         return None;
     }
@@ -186,7 +186,7 @@ pub fn decode(path: &[[f32; 2]], keys: &[Key]) -> Option<(String, f32)> {
         .collect();
     let normalized_centers = centers.map(|p| [p[0] / scale, p[1] / scale]);
 
-    let mut best_word: Option<&Word> = None;
+    let mut best_text: Option<&str> = None;
     let mut best_score = f32::INFINITY;
 
     for word in words() {
@@ -203,15 +203,39 @@ pub fn decode(path: &[[f32; 2]], keys: &[Key]) -> Option<(String, f32)> {
         let score = base + word.prior * 0.012;
         if score < best_score {
             best_score = score;
-            best_word = Some(word);
+            best_text = Some(word.text);
         }
     }
 
-    let word = best_word?;
+    // The user's custom vocabulary (names, products) gets a decent prior so
+    // domain words win over generic English.
+    for word in extra {
+        let text = word.trim();
+        if text.len() < 2 || text.len() > 15 || !text.chars().all(|c| c.is_ascii_lowercase()) {
+            continue;
+        }
+        let Some(base) = score_word(
+            text,
+            &normalized_path,
+            &normalized_centers,
+            &present,
+            scale,
+            &crossed,
+        ) else {
+            continue;
+        };
+        let score = base + 0.05;
+        if score < best_score {
+            best_score = score;
+            best_text = Some(text);
+        }
+    }
+
+    let word = best_text?;
     if best_score > 1.6 {
         return None;
     }
-    Some((word.text.to_string(), best_score))
+    Some((word.to_string(), best_score))
 }
 
 #[cfg(test)]
@@ -252,7 +276,7 @@ mod tests {
         let keys = qwerty();
         for word in ["hello", "world", "the", "keyboard", "typing", "message"] {
             let path = path_for(word, &keys);
-            let result = decode(&path, &keys);
+            let result = decode(&path, &keys, &[]);
             assert_eq!(
                 result.as_ref().map(|(w, _)| w.as_str()),
                 Some(word),
@@ -265,7 +289,7 @@ mod tests {
     fn rejects_a_single_key() {
         let keys = qwerty();
         let path = vec![[400.0, 100.0]];
-        assert!(decode(&path, &keys).is_none());
+        assert!(decode(&path, &keys, &[]).is_none());
     }
 
     #[test]

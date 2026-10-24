@@ -16,6 +16,7 @@ object SwipeClient {
     fun decode(
         points: List<PointF>,
         keys: List<SwipeKey>,
+        extra: List<String>,
         onResult: (word: String?, score: Float) -> Unit,
     ) {
         val path = JSONArray()
@@ -32,12 +33,14 @@ object SwipeClient {
                     .put("y", key.y.toDouble())
             )
         }
+        val extraArray = JSONArray()
+        extra.forEach { word -> extraArray.put(word) }
 
         Thread({
             var word: String? = null
             var score = 0f
             try {
-                val raw = NativeCore.nativeSwipeDecode(path.toString(), keyArray.toString())
+                val raw = NativeCore.nativeSwipeDecode(path.toString(), keyArray.toString(), extraArray.toString())
                 val json = raw?.takeIf { it.isNotBlank() }?.let { JSONObject(it) }
                 if (json != null) {
                     word = json.optString("word").takeIf { text -> text.isNotBlank() }

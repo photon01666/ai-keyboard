@@ -95,7 +95,7 @@ class AiKeyboardView(context: Context) : FrameLayout(context) {
                 if (!prefs.swipeTyping || aiVisible) return
                 val generation = ++swipeGeneration
                 val swipeKeys = keys.map { SwipeClient.SwipeKey(it.letter, it.x, it.y) }
-                SwipeClient.decode(points, swipeKeys) { word, score ->
+                SwipeClient.decode(points, swipeKeys, prefs.vocabularyList()) { word, score ->
                     if (generation != swipeGeneration || word.isNullOrBlank()) return@decode
                     val text = if (capitalize) {
                         word.replaceFirstChar { it.uppercase() }
