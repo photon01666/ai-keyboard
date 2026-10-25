@@ -102,6 +102,6 @@ class Prefs(context: Context) {
         private const val KEY_KEYBOARD_HEIGHT = "keyboard_height"
 
         const val DEFAULT_MODEL = "gemini-3.5-transcribe-live"
-        const val DEFAULT_FIX_MODEL = "gemini-3.6-flash"
+        const val DEFAULT_FIX_MODEL = "gemini-3.8-flash"
     }
 }
