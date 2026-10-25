@@ -139,18 +139,18 @@ class AiKeyboardView(context: Context) : FrameLayout(context) {
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         val width = MeasureSpec.getSize(widthMeasureSpec)
-        val base = TypedValue.applyDimension(
+        val base = (TypedValue.applyDimension(
             TypedValue.COMPLEX_UNIT_DIP,
             296f,
             resources.displayMetrics,
-        ).toInt()
+        ) * (prefs.keyboardHeight / 100f)).toInt()
         val wantedStrip = if (autofillStrip.visibility == View.VISIBLE) {
             TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 56f, resources.displayMetrics).toInt()
         } else {
             0
         }
         val desired = base + wantedStrip
-        val height = resolveSize(desired, heightMeasureSpec)
+        val height = desired.coerceAtMost(1500).coerceAtLeast(200)
         stripHeight = wantedStrip.coerceAtMost(height)
         keyboardHeight = (height - stripHeight).coerceAtLeast(base - wantedStrip)
         setMeasuredDimension(width, height)

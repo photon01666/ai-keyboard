@@ -57,6 +57,11 @@ class Prefs(context: Context) {
         get() = prefs.getInt(KEY_KEYBOARD_SIZE, 100).coerceIn(80, 150)
         set(value) = prefs.edit().putInt(KEY_KEYBOARD_SIZE, value.coerceIn(80, 150)).apply()
 
+    /** Keyboard height as a percentage (80-150). 100 = default. */
+    var keyboardHeight: Int
+        get() = prefs.getInt(KEY_KEYBOARD_HEIGHT, 100).coerceIn(80, 150)
+        set(value) = prefs.edit().putInt(KEY_KEYBOARD_HEIGHT, value.coerceIn(80, 150)).apply()
+
     fun isConfigured(): Boolean = apiKey.isNotBlank()
 
     fun languageList(): List<String> =
@@ -94,6 +99,7 @@ class Prefs(context: Context) {
         private const val KEY_AUTO_FIX = "auto_fix"
         private const val KEY_SWIPE_TYPING = "swipe_typing"
         private const val KEY_KEYBOARD_SIZE = "keyboard_size"
+        private const val KEY_KEYBOARD_HEIGHT = "keyboard_height"
 
         const val DEFAULT_MODEL = "gemini-3.5-transcribe-live"
         const val DEFAULT_FIX_MODEL = "gemini-3.6-flash"

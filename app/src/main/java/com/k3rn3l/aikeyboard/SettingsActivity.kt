@@ -28,6 +28,7 @@ class SettingsActivity : Activity() {
     private lateinit var autoFix: Switch
     private lateinit var swipeTyping: Switch
     private lateinit var keyboardSize: EditText
+    private lateinit var keyboardHeight: EditText
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -176,6 +177,14 @@ class SettingsActivity : Activity() {
         content.addView(keyboardSize)
         content.addView(fieldHelp("Scale of the keyboard and letter size. 80-150%. Restart keyboard to apply."))
 
+        content.addView(Ui.spacer(this, 8))
+        content.addView(fieldLabel("KEYBOARD HEIGHT (%)"))
+        keyboardHeight = Ui.editText(this, "100", prefs.keyboardHeight.toString()).apply {
+            inputType = InputType.TYPE_CLASS_NUMBER
+        }
+        content.addView(keyboardHeight)
+        content.addView(fieldHelp("Overall height of the keyboard. 80-150%."))
+
         content.addView(Ui.spacer(this, 28))
 
         val save = Ui.button(this, "Save settings", primary = true).apply {
@@ -258,6 +267,7 @@ class SettingsActivity : Activity() {
         prefs.autoFix = autoFix.isChecked
         prefs.swipeTyping = swipeTyping.isChecked
         prefs.keyboardSize = keyboardSize.text.toString().toIntOrNull() ?: 100
+        prefs.keyboardHeight = keyboardHeight.text.toString().toIntOrNull() ?: 100
 
         val message = if (prefs.apiKey.isBlank()) {
             "Saved — add a Gemini API key to start voice mode"
