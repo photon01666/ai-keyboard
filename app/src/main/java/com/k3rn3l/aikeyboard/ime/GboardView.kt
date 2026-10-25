@@ -254,7 +254,8 @@ class GboardView(context: Context) : View(context) {
 
         // AI lives at the far top-right, settings at the far left.
         gearRect.set(padH, dp(5f), padH + dp(38f), dp(39f))
-        aiRect.set(width - padH - dp(120f), dp(7f), width - padH, dp(37f))
+        val aiW = dp(120f)
+        aiRect.set((width - aiW) / 2f, dp(7f), (width + aiW) / 2f, dp(37f))
 
         gradientPaint.shader = LinearGradient(
             aiRect.left, 0f, aiRect.right, 0f,
