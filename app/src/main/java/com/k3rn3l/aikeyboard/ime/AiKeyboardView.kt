@@ -31,7 +31,7 @@ class AiKeyboardView(context: Context) : FrameLayout(context) {
     private val service = context as AiKeyboardService
     private val prefs = Prefs(context)
 
-    private val gboard = GboardView(context)
+    private val gboard = GboardView(context).apply { setKeyboardSize(prefs.keyboardSize) }
     private val panel = AiPanelView(context)
     private val autofillStrip = HorizontalScrollView(context)
     private val autofillRow = LinearLayout(context)
@@ -134,6 +134,8 @@ class AiKeyboardView(context: Context) : FrameLayout(context) {
             if (errorMode) startAi() else flow.stop()
         }
     }
+
+    fun focusKeyboard() { gboard.requestFocus() }
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         val width = MeasureSpec.getSize(widthMeasureSpec)

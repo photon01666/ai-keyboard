@@ -53,6 +53,17 @@ class GboardView(context: Context) : View(context) {
     }
 
     private val density = resources.displayMetrics.density
+    private var scale: Float = 1f
+
+    fun setKeyboardSize(percent: Int) {
+        val newScale = (percent.coerceIn(80, 150)) / 100f
+        if (scale == newScale) return
+        scale = newScale
+        keyRects.clear()
+        if (width > 0 && height > 0) layoutKeys()
+        invalidate()
+        requestLayout()
+    }
 
     private val bgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF0B0C11.toInt() }
     private val keyPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF262832.toInt() }
@@ -167,7 +178,8 @@ class GboardView(context: Context) : View(context) {
 
     init {
         isClickable = true
-        isFocusable = false
+        isFocusable = true
+        isFocusableInTouchMode = true
         setBackgroundColor(0xFF0B0C11.toInt())
     }
 
@@ -197,7 +209,7 @@ class GboardView(context: Context) : View(context) {
         invalidate()
     }
 
-    private fun dp(value: Float): Float = value * density
+    private fun dp(value: Float): Float = value * density * scale
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         val width = MeasureSpec.getSize(widthMeasureSpec)
@@ -211,6 +223,11 @@ class GboardView(context: Context) : View(context) {
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
         layoutKeys()
+    }
+
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        if (width > 0 && height > 0) layoutKeys()
     }
 
     private fun layoutKeys() {
@@ -384,6 +401,7 @@ class GboardView(context: Context) : View(context) {
     override fun onTouchEvent(event: MotionEvent): Boolean {
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
+                if (keyRects.isEmpty() && width > 0 && height > 0) layoutKeys()
                 val hit = hitTest(event.x, event.y) ?: return false
                 pressed = hit
                 swipePoints.clear()
@@ -498,6 +516,7 @@ class GboardView(context: Context) : View(context) {
     }
 
     private fun letterCenters(): List<KeyCenter> {
+        if (keyRects.isEmpty() && width > 0 && height > 0) layoutKeys()
         val out = mutableListOf<KeyCenter>()
         var index = 0
         for (row in rows) {

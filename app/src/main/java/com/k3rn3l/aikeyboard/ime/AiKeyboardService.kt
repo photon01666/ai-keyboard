@@ -49,6 +49,7 @@ class AiKeyboardService : InputMethodService() {
         root?.setNumberMode(number)
         root?.clearInlineSuggestions()
         root?.refresh()
+        root?.focusKeyboard()
         updateShift()
     }
 
