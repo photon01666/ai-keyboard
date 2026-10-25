@@ -301,7 +301,7 @@ class AiKeyboardView(context: Context) : FrameLayout(context) {
     fun refresh() {
         gboard.setKeyboardSize(prefs.keyboardSize)
         gboard.refresh()
-        if (!aiVisible) gboard.setHint("Tap AI to talk")
+        if (!aiVisible) gboard.setHint("")
     }
 
     fun setNumberMode(enabled: Boolean) {
@@ -402,7 +402,7 @@ class AiKeyboardView(context: Context) : FrameLayout(context) {
                 stopTicker()
             }
 
-            "hint" -> gboard.setHint(text ?: "Tap AI to talk")
+            "hint" -> gboard.setHint(text ?: "")
 
             "toast" -> if (!text.isNullOrBlank()) {
                 Toast.makeText(context, text, Toast.LENGTH_SHORT).show()

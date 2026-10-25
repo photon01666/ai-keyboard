@@ -177,7 +177,7 @@ impl Flow {
                             vec![ShowPolishing, Polish]
                         } else {
                             self.phase = Phase::Finishing;
-                            vec![StopSession, HidePanel, hint("Tap AI to talk")]
+                            vec![StopSession, HidePanel, hint("")]
                         }
                     } else {
                         Vec::new()
@@ -213,7 +213,7 @@ impl Flow {
                                 vec![ShowPolishing, Polish]
                             } else {
                                 self.phase = Phase::Finishing;
-                                vec![StopSession, HidePanel, hint("Tap AI to talk")]
+                                vec![StopSession, HidePanel, hint("")]
                             }
                         } else {
                             Vec::new()
@@ -247,14 +247,14 @@ impl Flow {
                     vec![ShowPolishing, Polish]
                 } else {
                     self.phase = Phase::Finishing;
-                    vec![StopSession, HidePanel, hint("Tap AI to talk")]
+                    vec![StopSession, HidePanel, hint("")]
                 }
             }
 
             Event::Stop => match self.phase {
                 Phase::Listening | Phase::Connecting => {
                     self.phase = Phase::Finishing;
-                    vec![StopSession, HidePanel, hint("Tap AI to talk")]
+                    vec![StopSession, HidePanel, hint("")]
                 }
                 Phase::Polishing => {
                     // The UI disables Stop during polish. Do not let any other
@@ -264,7 +264,7 @@ impl Flow {
                 }
                 Phase::Error => {
                     self.phase = Phase::Idle;
-                    vec![HidePanel, hint("Tap AI to talk")]
+                    vec![HidePanel, hint("")]
                 }
                 _ => Vec::new(),
             },
@@ -293,7 +293,7 @@ impl Flow {
                         effects.push(CancelSession);
                     }
                     effects.push(HidePanel);
-                    effects.push(hint("Tap AI to talk"));
+                    effects.push(hint(""));
                     self.session_closed = false;
                     return effects;
                 }
@@ -306,7 +306,7 @@ impl Flow {
                         effects.push(StopSession);
                     }
                     effects.push(HidePanel);
-                    effects.push(hint(if ok { "Polished ✓" } else { "Tap AI to talk" }));
+                    effects.push(hint(if ok { "Polished ✓" } else { "" }));
                     if !ok {
                         effects.push(toast("Polish failed — stopped listening"));
                     }
@@ -335,7 +335,7 @@ impl Flow {
                     effects.push(StopSession);
                 }
                 effects.push(HidePanel);
-                effects.push(hint(if ok { "Polished ✓" } else { "Tap AI to talk" }));
+                effects.push(hint(if ok { "Polished ✓" } else { "" }));
                 if !ok {
                     effects.push(toast("Polish failed — stopped listening"));
                 }
@@ -356,7 +356,7 @@ impl Flow {
                             self.reset_for_start(polish);
                             vec![ClearField, ShowPanel, StartSession]
                         } else {
-                            vec![HidePanel, hint("Tap AI to talk")]
+                            vec![HidePanel, hint("")]
                         }
                     }
 
@@ -370,7 +370,7 @@ impl Flow {
                     Phase::Listening | Phase::Connecting => {
                         self.phase = Phase::Idle;
                         self.session_closed = false;
-                        vec![HidePanel, hint("Tap AI to talk")]
+                        vec![HidePanel, hint("")]
                     }
                 }
             }
@@ -384,7 +384,7 @@ impl Flow {
                     vec![
                         StopSession,
                         HidePanel,
-                        hint("Tap AI to talk"),
+                        hint(""),
                         toast("Session closed automatically after 60 seconds"),
                     ]
                 }
@@ -403,7 +403,7 @@ impl Flow {
                     self.has_final = false;
                     self.speech_active = false;
                     self.session_closed = false;
-                    vec![CancelSession, HidePanel, hint("Tap AI to talk")]
+                    vec![CancelSession, HidePanel, hint("")]
                 }
                 _ => Vec::new(),
             },
@@ -520,7 +520,7 @@ mod tests {
             vec![
                 Effect::HidePanel,
                 Effect::Hint {
-                    text: "Tap AI to talk".into()
+                    text: "".into()
                 }
             ]
         );
@@ -539,7 +539,7 @@ mod tests {
                 Effect::CancelSession,
                 Effect::HidePanel,
                 Effect::Hint {
-                    text: "Tap AI to talk".into()
+                    text: "".into()
                 }
             ]
         );
@@ -555,7 +555,7 @@ mod tests {
                 Effect::StopSession,
                 Effect::HidePanel,
                 Effect::Hint {
-                    text: "Tap AI to talk".into()
+                    text: "".into()
                 }
             ]
         );
@@ -592,7 +592,7 @@ mod tests {
                 Effect::StopSession,
                 Effect::HidePanel,
                 Effect::Hint {
-                    text: "Tap AI to talk".into()
+                    text: "".into()
                 }
             ]
         );
@@ -635,7 +635,7 @@ mod tests {
                 Effect::StopSession,
                 Effect::HidePanel,
                 Effect::Hint {
-                    text: "Tap AI to talk".into()
+                    text: "".into()
                 },
                 Effect::Toast {
                     text: "Session closed automatically after 60 seconds".into()
@@ -682,7 +682,7 @@ mod tests {
                 Effect::CancelSession,
                 Effect::HidePanel,
                 Effect::Hint {
-                    text: "Tap AI to talk".into()
+                    text: "".into()
                 }
             ]
         );

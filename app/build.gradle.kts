@@ -13,8 +13,8 @@ android {
         applicationId = "com.k3rn3l.aikeyboard"
         minSdk = 26
         targetSdk = 34
-        versionCode = 11
-        versionName = "0.11.0"
+        versionCode = 12
+        versionName = "0.12.0"
 
         ndk {
             abiFilters += "arm64-v8a"

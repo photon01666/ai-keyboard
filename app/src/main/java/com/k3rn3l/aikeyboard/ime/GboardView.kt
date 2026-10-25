@@ -146,7 +146,7 @@ class GboardView(context: Context) : View(context) {
     private var lastShiftTap = 0L
     private var symbols = false
     private var numberMode = false
-    private var hint = "Tap AI to talk"
+    private var hint = ""
 
     private val swipePoints = mutableListOf<PointF>()
     private var swipeArmed = false
