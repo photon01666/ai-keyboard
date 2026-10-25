@@ -284,6 +284,7 @@ class AiKeyboardView(context: Context) : FrameLayout(context) {
     }
 
     fun refresh() {
+        gboard.setKeyboardSize(prefs.keyboardSize)
         gboard.refresh()
         if (!aiVisible) gboard.setHint("Tap AI to talk")
     }
