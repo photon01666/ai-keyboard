@@ -169,6 +169,12 @@ class AiKeyboardView(context: Context) : FrameLayout(context) {
         autofillStrip.layout(0, 0, width, stripHeight)
         gboard.layout(0, stripHeight, width, stripHeight + keyboardHeight)
         panel.layout(0, stripHeight, width, stripHeight + keyboardHeight)
+        pasteChip?.let { chip ->
+            val cw = chip.measuredWidth.takeIf { it > 0 } ?: chip.width.takeIf { it > 0 } ?: dp(90f).toInt()
+            val ch = chip.measuredHeight.takeIf { it > 0 } ?: chip.height.takeIf { it > 0 } ?: dp(36f).toInt()
+            val margin = dp(8f).toInt()
+            chip.layout(width - cw - margin, (stripHeight - ch) / 2, width - margin, (stripHeight - ch) / 2 + ch)
+        }
     }
 
     fun showInlineSuggestions(response: InlineSuggestionsResponse): Boolean {
@@ -229,8 +235,10 @@ class AiKeyboardView(context: Context) : FrameLayout(context) {
         inlineGeneration++
         autofillRow.removeAllViews()
         hasInlineSuggestions = false
-        pasteChip?.let { autofillRow.removeView(it) }
+        pasteChip?.let { removeView(it) }
         pasteChip = null
+        autofillStrip.setPadding(0, 0, 0, 0)
+        setAutofillStripVisible(false)
         // Re-add paste chip if clipboard has text.
         post { updatePasteChip() }
     }
@@ -257,17 +265,24 @@ class AiKeyboardView(context: Context) : FrameLayout(context) {
                 setOnClickListener { service.pasteClipboard() }
             }
             pasteChip = chip
-            autofillRow.addView(chip)
+            addView(chip)
+            // Reserve space on the right of the strip so suggestions never slide under the chip.
+            autofillStrip.setPadding(0, 0, dp(100f).toInt(), 0)
+            chip.measure(
+                MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED),
+                MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED),
+            )
         } else if (!hasText && pasteChip != null) {
-            autofillRow.removeView(pasteChip)
+            removeView(pasteChip)
             pasteChip = null
+            autofillStrip.setPadding(0, 0, 0, 0)
         }
         // Show strip if we have either inline suggestions or a paste chip.
-        if (hasText) setAutofillStripVisible(true)
+        setAutofillStripVisible(true)
     }
 
     private fun setAutofillStripVisible(visible: Boolean) {
-        val target = visible && autofillRow.childCount > 0 && !aiVisible
+        val target = visible && (autofillRow.childCount > 0 || pasteChip != null) && !aiVisible
         val newVisibility = if (target) View.VISIBLE else View.GONE
         if (autofillStrip.visibility == newVisibility) return
         autofillStrip.visibility = newVisibility
