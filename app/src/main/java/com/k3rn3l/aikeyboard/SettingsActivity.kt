@@ -100,8 +100,8 @@ class SettingsActivity : Activity() {
         content.addView(sectionLabel("TEXT REPAIR"))
         autoFix = switchRow(
             content,
-            "Polish on Done",
-            "Done runs a Gemini pass for grammar, names and punctuation, then closes the session. Every AI run starts with an empty field.",
+            "Auto-polish",
+            "After you stop speaking, a Gemini pass fixes grammar, names and punctuation, then closes the session. Every AI run starts with an empty field.",
             prefs.autoFix,
         )
         content.addView(Ui.spacer(this, 8))
